@@ -9,6 +9,11 @@ Events fired on the bus:
 
 - ``boost_timer_heating_started`` / ``boost_timer_heating_stopped`` with
   ``{entry_id, at, request, source}`` when the timer goes from off to on or back.
+- ``boost_timer_press_failed`` with ``{entry_id, at, press_index, reason}`` when a press fails,
+  or is so slow that the selection window may have closed mid-burst.
+
+After ``press_retries`` failures in a row while heating is requested, a persistent notification
+is raised; it is dismissed by the next successful press.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ from datetime import date, datetime
 import logging
 from typing import Any
 
+from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_point_in_utc_time
@@ -26,15 +32,16 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_BOT, CONF_PRESS_SERVICE, DEFAULTS, DOMAIN
-from .model import Observation, Options, TimerModel
+from .model import Observation, Options, TimerModel, UnknownObs
 from .planner import Burst, Done, Kind, Request, Wait, next_action
-from .press import PressAdapter, PressFailed
+from .press import BotUnavailable, PressAdapter, PressFailed
 
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
 EVENT_STARTED = f"{DOMAIN}_heating_started"
 EVENT_STOPPED = f"{DOMAIN}_heating_stopped"
+EVENT_PRESS_FAILED = f"{DOMAIN}_press_failed"
 
 
 def _local_date(t: datetime) -> date:
@@ -67,6 +74,14 @@ class BoostTimerController:
         self._presses_date: date | None = None
         self.session_started_at: datetime | None = None
         self._was_heating = False
+
+        self._failures = 0
+        self._notified = False
+        self._retry_at: datetime | None = None
+        # Rate limiting of heating on/off reversals.
+        self._applied_on: bool | None = None
+        self._last_switch_change: datetime | None = None
+        self._deferred_until: datetime | None = None
 
     # ---- public API -------------------------------------------------------------------------
 
@@ -116,6 +131,8 @@ class BoostTimerController:
         if self.request is not None and self.request.priority > request.priority:
             return False
         self.request = request
+        self._rate_limit(request, dt_util.utcnow())
+        self._retry_at = None
         await self._save()
         self._notify()
         self._kick()
@@ -133,6 +150,36 @@ class BoostTimerController:
         self._listeners.append(cb)
         return lambda: self._listeners.remove(cb)
 
+    # ---- rate limiting ----------------------------------------------------------------------
+
+    @staticmethod
+    def _onness(request: Request | None) -> bool | None:
+        """True for heat, False for off, None for a one-off setting (never rate limited)."""
+        if request is None or request.kind is Kind.SET:
+            return None
+        return request.kind is Kind.HEAT
+
+    def _rate_limit(self, request: Request, now: datetime) -> None:
+        """Defer an on/off reversal made within ``min_switch_interval`` of the last one."""
+        on = self._onness(request)
+        last = self._last_switch_change
+        if (
+            on is not None
+            and self._applied_on is not None
+            and on != self._applied_on
+            and last is not None
+            and now - last < self.options.min_switch_interval
+        ):
+            self._deferred_until = last + self.options.min_switch_interval
+            return
+        self._deferred_until = None
+        self._apply_switch(on, now)
+
+    def _apply_switch(self, on: bool | None, now: datetime) -> None:
+        if on is not None and on != self._applied_on:
+            self._applied_on = on
+            self._last_switch_change = now
+
     # ---- execution --------------------------------------------------------------------------
 
     @callback
@@ -148,10 +195,21 @@ class BoostTimerController:
                 now = dt_util.utcnow()
                 self.model.tick(now, self.options)
                 self._check_heating(now)
+                if self._deferred_until is not None:
+                    if now < self._deferred_until:
+                        self._schedule(Wait(self._deferred_until), now)
+                        break
+                    self._deferred_until = None
+                    self._apply_switch(self._onness(self.request), now)
+                if self._retry_at is not None:
+                    if now < self._retry_at:
+                        self._schedule(Wait(self._retry_at), now)
+                        break
+                    self._retry_at = None
                 action = next_action(self.model, self.request, now, self.options)
                 if isinstance(action, Burst):
                     if not await self._burst(action.presses):
-                        break
+                        self._retry_at = dt_util.utcnow() + self.options.retry_backoff
                     continue
                 if isinstance(action, Done) and self._request_finishes_when_done():
                     self.request = None
@@ -165,20 +223,71 @@ class BoostTimerController:
         return r is not None and (r.kind is not Kind.HEAT or r.until is not None)
 
     async def _burst(self, presses: int) -> bool:
-        """Press ``presses`` times back to back. Returns False if a press failed."""
-        for _ in range(presses):
+        """Press ``presses`` times back to back. Returns False if the burst failed.
+
+        An unavailable Bot before the first press changes nothing. Any other failure, or a press
+        after the first that took so long the selection window may have closed, marks the model
+        uncertain.
+        """
+        window = self.options.selection_window - self.options.burst_margin
+        for i in range(presses):
+            started = dt_util.utcnow()
             try:
                 await self._press.press()
             except PressFailed as err:
-                _LOGGER.warning("Press failed: %s", err)
+                if not (i == 0 and isinstance(err, BotUnavailable)):
+                    self.model.observe(UnknownObs(), dt_util.utcnow(), self.options, "executor")
+                    await self._save()
+                self._press_failed(i + 1, str(err))
                 return False
             now = dt_util.utcnow()
             self.model.apply_press(now, self.options)
             self._count_press(now)
             self._check_heating(now)
+            slow = i > 0 and now - started > window
+            if slow:
+                self.model.observe(UnknownObs(), now, self.options, "executor")
             await self._save()
             self._notify()
+            if slow:
+                self._press_failed(i + 1, f"press took {(now - started).total_seconds():.1f} s")
+                return False
+        self._press_succeeded()
         return True
+
+    def _press_failed(self, index: int, reason: str) -> None:
+        _LOGGER.warning("Press %d failed: %s", index, reason)
+        self._failures += 1
+        self.hass.bus.async_fire(
+            EVENT_PRESS_FAILED,
+            {
+                "entry_id": self.entry.entry_id,
+                "at": dt_util.utcnow().isoformat(),
+                "press_index": index,
+                "reason": reason,
+            },
+        )
+        heating = self.request is not None and self.request.kind is Kind.HEAT
+        if heating and self._failures >= self.options.press_retries and not self._notified:
+            self._notified = True
+            persistent_notification.async_create(
+                self.hass,
+                f"{self.entry.title}: the SwitchBot failed {self._failures} times in a row "
+                f"({reason}). Heating is still requested; retrying every "
+                f"{int(self.options.retry_backoff.total_seconds() // 60)} min.",
+                title="Boost Timer",
+                notification_id=self._notification_id,
+            )
+
+    def _press_succeeded(self) -> None:
+        self._failures = 0
+        if self._notified:
+            self._notified = False
+            persistent_notification.async_dismiss(self.hass, self._notification_id)
+
+    @property
+    def _notification_id(self) -> str:
+        return f"{DOMAIN}_{self.entry.entry_id}_press_failed"
 
     def _count_press(self, now: datetime) -> None:
         today = _local_date(now)
