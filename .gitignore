@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.zip
+
+# Local Claude Code / agent state, never committed
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.remember/
+.superpowers/
