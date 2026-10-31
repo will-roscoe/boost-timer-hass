@@ -32,6 +32,9 @@
           "steps": "Number of steps (LEDs)"
         }
       }
+    },
+    "error": {
+      "on_setting_above_steps": "\"On\" can't arm above the number of steps."
     }
   },
   "selector": {

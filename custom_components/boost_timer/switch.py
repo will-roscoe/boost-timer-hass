@@ -45,9 +45,20 @@ class HeatingSwitch(BoostTimerEntity, SwitchEntity):
         }
 
     async def async_turn_on(self, **kwargs: Any) -> None:
+        """Ask for heating. Repeating it (e.g. a thermostat's keep-alive) changes nothing, so it
+        neither moves the ``max_duration`` deadline nor cuts a retry backoff short."""
+        if self._is_switch_request(Kind.HEAT):
+            return
         await self.controller.submit(
             Request.on(dt_util.utcnow(), self.controller.options, source="switch")
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
+        """Ask for the timer to be off; repeating it changes nothing."""
+        if self._is_switch_request(Kind.OFF):
+            return
         await self.controller.submit(Request.off(dt_util.utcnow(), source="switch"))
+
+    def _is_switch_request(self, kind: Kind) -> bool:
+        r = self.controller.request
+        return r is not None and r.kind is kind and r.source == "switch"

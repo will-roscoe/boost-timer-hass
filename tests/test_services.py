@@ -87,3 +87,22 @@ async def test_entry_id_required_with_two_entries(hass, bot, entry):
     await call(hass, "sync", {"setting": 1, "config_entry_id": other.entry_id})
     assert other.runtime_data.model.setting(now(), other.runtime_data.options) == 1
     assert entry.runtime_data.model.setting(now(), entry.runtime_data.options) == 0
+
+
+async def test_heat_for_55min_keeps_request_until_end(hass, bot, entry, freezer):
+    await setup(hass, entry)
+    await call(hass, "heat_for", {"duration": {"minutes": 55}})
+    assert len(bot) == 1
+    assert state(hass, "switch.radiator_heating") == "on"
+    assert state(hass, "sensor.radiator_heating_until") == secs(now() + 55 * M)
+    await advance(hass, freezer, 56 * M)
+    assert state(hass, "switch.radiator_heating") == "off"
+
+
+async def test_sync_after_heat_for_replans(hass, bot, entry, freezer):
+    await setup(hass, entry)
+    await call(hass, "heat_for", {"duration": {"minutes": 55}})
+    assert len(bot) == 1
+    await advance(hass, freezer, M)
+    await call(hass, "sync", {"setting": 0})
+    assert len(bot) == 2

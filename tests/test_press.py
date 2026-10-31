@@ -81,3 +81,14 @@ async def test_service_error_raises_press_failed(hass):
     with pytest.raises(PressFailed) as err:
         await PressAdapter(hass, BOT, "turn_on").press()
     assert not isinstance(err.value, BotUnavailable)
+
+
+async def test_unexpected_exception_raises_press_failed(hass):
+    hass.states.async_set(BOT, "off")
+
+    async def fail(call):
+        raise TimeoutError
+
+    hass.services.async_register("switch", "turn_on", fail)
+    with pytest.raises(PressFailed):
+        await PressAdapter(hass, BOT, "turn_on").press()

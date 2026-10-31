@@ -6,9 +6,13 @@ command after the Bot sleeps) are handled here, so the planner and controller ne
 
 from __future__ import annotations
 
+import asyncio
+
 from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+
+#: Seconds before a press call that has not returned counts as failed.
+PRESS_TIMEOUT = 30
 
 
 class PressFailed(Exception):
@@ -37,7 +41,7 @@ class PressAdapter:
 
         :raises BotUnavailable: the entity is missing or ``unavailable`` (a switch also when
             ``unknown``).
-        :raises PressFailed: the service call raised.
+        :raises PressFailed: the service call raised anything, or took over :data:`PRESS_TIMEOUT`.
         """
         state = self._hass.states.get(self._entity_id)
         domain = self._entity_id.split(".", 1)[0]
@@ -52,8 +56,9 @@ class PressAdapter:
         else:
             service = self._service
         try:
-            await self._hass.services.async_call(
-                domain, service, {"entity_id": self._entity_id}, blocking=True
-            )
-        except HomeAssistantError as err:
-            raise PressFailed(str(err)) from err
+            async with asyncio.timeout(PRESS_TIMEOUT):
+                await self._hass.services.async_call(
+                    domain, service, {"entity_id": self._entity_id}, blocking=True
+                )
+        except Exception as err:  # noqa: BLE001 - any error means "probably not pressed"
+            raise PressFailed(str(err) or type(err).__name__) from err

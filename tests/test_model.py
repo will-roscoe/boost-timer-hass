@@ -160,3 +160,8 @@ def test_round_trip_dict():
     m.observe(UnknownObs(), T0 + 3 * S, OPTS, source="executor")
     assert TimerModel.from_dict(m.to_dict()) == m
     assert TimerModel.from_dict(TimerModel().to_dict()) == TimerModel()
+
+
+def test_on_setting_clamped_to_steps():
+    assert Options.from_mapping({"on_setting": 5}).on_setting == 4
+    assert Options.from_mapping({"on_setting": 4, "steps": 3}).on_setting == 3

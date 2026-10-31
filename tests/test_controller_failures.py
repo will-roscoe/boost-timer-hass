@@ -1,6 +1,9 @@
+from dataclasses import replace
 from datetime import timedelta
 
 from homeassistant.components.persistent_notification import _async_get_or_create_notifications
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+from homeassistant.core import CoreState
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_capture_events
@@ -139,3 +142,81 @@ async def test_deferred_off_executes_after_interval(hass, bot, entry, freezer):
     await advance(hass, freezer, start + 5 * M - dt_util.utcnow())
     assert len(bot) == 5
     assert c.model.setting(now(), c.options) == 0
+
+
+async def test_burst_returning_to_off_does_not_loop(hass, bot, entry, freezer):
+    c = await setup(hass, entry)
+    c.options = replace(c.options, on_setting=5)  # bypasses validation, as a defence test
+    await c.submit(Request.on(now(), c.options))
+    await hass.async_block_till_done()
+    for _ in range(7):
+        await advance(hass, freezer, timedelta(seconds=10))
+    assert len(bot) == 5
+    assert c.model.uncertain is True
+
+
+async def test_unexpected_exception_marks_uncertain_and_retries(hass, entry, freezer):
+    hass.states.async_set(BOT, "unknown")
+    calls = []
+
+    async def handler(call):
+        calls.append(call)
+        if len(calls) == 2:
+            raise TimeoutError
+
+    hass.services.async_register("button", "press", handler)
+    failed = async_capture_events(hass, "boost_timer_press_failed")
+    c = await setup(hass, entry)
+    await c.submit(Request.on(now(), c.options))
+    await hass.async_block_till_done()
+    assert len(calls) == 2
+    assert c.model.uncertain is True
+    assert len(failed) == 1
+    # not stalled: the model reads 1h running, so "On" re-arms when that hour is up
+    await advance(hass, freezer, 61 * M)
+    assert len(calls) == 6
+
+
+async def test_set_abandoned_after_retries(hass, bot, entry, freezer):
+    hass.states.async_set(BOT, "unavailable")
+    c = await setup(hass, entry)
+    await c.submit(Request.set(3, now()))
+    await hass.async_block_till_done()
+    await advance(hass, freezer, 5 * M)
+    assert c.request is None
+    hass.states.async_set(BOT, "unknown")
+    await advance(hass, freezer, 60 * M)
+    assert len(bot) == 0
+
+
+async def test_repeated_switch_turn_on_keeps_deadline_and_backoff(hass, entry, freezer):
+    calls = scripted_bot(hass, fail_on=set(range(1, 100)))
+    c = await setup(hass, entry)
+    c.options = replace(c.options, max_duration=timedelta(minutes=90))
+    turn_on = {"entity_id": "switch.radiator_heating"}
+    await hass.services.async_call("switch", "turn_on", turn_on, blocking=True)
+    await hass.async_block_till_done()
+    until = c.request.until
+    assert len(calls) == 1
+    await advance(hass, freezer, M)
+    await hass.services.async_call("switch", "turn_on", turn_on, blocking=True)
+    await hass.async_block_till_done()
+    assert c.request.until == until
+    assert len(calls) == 1
+    await advance(hass, freezer, 4 * M)
+    assert len(calls) == 2
+
+
+async def test_startup_waits_for_home_assistant_started(hass, bot, entry, freezer):
+    c = await setup(hass, entry)
+    await c.submit(Request.on(now(), c.options))
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    freezer.tick(timedelta(hours=5))
+    hass.set_state(CoreState.not_running)
+    await setup(hass, entry)
+    assert len(bot) == 4
+    hass.set_state(CoreState.running)
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await hass.async_block_till_done()
+    assert len(bot) == 8

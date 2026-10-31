@@ -101,13 +101,17 @@ class BoostTimerOptionsFlow(OptionsFlowWithReload):
     """Edit every timing setting; saving reloads the timer."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
-        current = {**DEFAULTS, **self.config_entry.options}
+            if user_input[CONF_ON_SETTING] > user_input[CONF_STEPS]:
+                errors[CONF_ON_SETTING] = "on_setting_above_steps"
+            else:
+                return self.async_create_entry(data=user_input)
+        current = {**DEFAULTS, **self.config_entry.options, **(user_input or {})}
         schema = vol.Schema(
             {
                 vol.Optional(key, default=current[key]): selector
                 for key, selector in OPTION_FIELDS.items()
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)

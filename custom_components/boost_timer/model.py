@@ -62,17 +62,20 @@ class Options:
 
         :param m: options keyed by the ``CONF_*`` names; seconds for the selection window and
             burst margin, minutes for tolerances, intervals and the step; ``max_duration`` 0 = none.
-        :returns: the options with every duration as a :class:`~datetime.timedelta`.
+        :returns: the options with every duration as a :class:`~datetime.timedelta`, and
+            ``on_setting`` clamped to ``steps``.
         """
         v = {**DEFAULTS, **m}
         max_minutes = int(v[CONF_MAX_DURATION])
+        steps = int(v[CONF_STEPS])
         return cls(
             step=timedelta(minutes=int(v[CONF_STEP])),
-            steps=int(v[CONF_STEPS]),
+            steps=steps,
             selection_window=timedelta(seconds=float(v[CONF_SELECTION_WINDOW])),
             burst_margin=timedelta(seconds=float(v[CONF_BURST_MARGIN])),
             press_retries=int(v[CONF_PRESS_RETRIES]),
-            on_setting=int(v[CONF_ON_SETTING]),
+            # Above ``steps`` a burst would cycle back round to off and loop.
+            on_setting=min(int(v[CONF_ON_SETTING]), steps),
             rearm_early=bool(v[CONF_REARM_EARLY]),
             rearm_lead=REARM_LEAD,
             end_tolerance=timedelta(minutes=int(v[CONF_END_TOLERANCE])),

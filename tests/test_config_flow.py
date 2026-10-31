@@ -89,3 +89,13 @@ async def test_options_flow_saves_and_controller_uses_them(hass, bot, entry):
     )
     await hass.async_block_till_done()
     assert len(bot) == 2
+
+
+async def test_options_flow_rejects_on_setting_above_steps(hass, bot, entry):
+    await setup(hass, entry)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**DEFAULTS, CONF_ON_SETTING: 5}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {CONF_ON_SETTING: "on_setting_above_steps"}

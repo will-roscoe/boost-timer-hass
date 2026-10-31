@@ -28,6 +28,7 @@ from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_point_in_utc_time
+from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -66,6 +67,7 @@ class BoostTimerController:
         self._lock = asyncio.Lock()
         self._listeners: list[Callable[[], None]] = []
         self._unsub_wake: CALLBACK_TYPE | None = None
+        self._unsub_started: CALLBACK_TYPE | None = None
         self._stopped = False
 
         self.model = TimerModel()
@@ -102,7 +104,11 @@ class BoostTimerController:
         return self.model.setting(now or dt_util.utcnow(), self.options) > 0
 
     async def async_start(self) -> None:
-        """Restore saved state and carry on with the active request."""
+        """Restore saved state; carry on with the active request once Home Assistant has started.
+
+        Pressing waits for startup so the Bot's entity exists, and so setup isn't held up by a
+        Bluetooth burst.
+        """
         data = await self._store.async_load()
         if data:
             self.model = TimerModel.from_dict(data.get("model", {}))
@@ -114,12 +120,20 @@ class BoostTimerController:
             ss = data.get("session_started_at")
             self.session_started_at = datetime.fromisoformat(ss) if ss else None
         self._was_heating = self.session_started_at is not None
-        await self._run()
+        self._unsub_started = async_at_started(self.hass, self._on_started)
+
+    @callback
+    def _on_started(self, _hass: HomeAssistant) -> None:
+        self._unsub_started = None
+        self._kick()
 
     async def async_stop(self) -> None:
-        """Stop scheduling; an in-progress run finishes its current press."""
+        """Stop scheduling; an in-progress run finishes its current burst."""
         self._stopped = True
         self._cancel_wake()
+        if self._unsub_started:
+            self._unsub_started()
+            self._unsub_started = None
         async with self._lock:
             pass
 
@@ -209,18 +223,49 @@ class BoostTimerController:
                 action = next_action(self.model, self.request, now, self.options)
                 if isinstance(action, Burst):
                     if not await self._burst(action.presses):
-                        self._retry_at = dt_util.utcnow() + self.options.retry_backoff
+                        await self._after_failure()
+                    elif self._burst_missed_target():
+                        await self._abandon_unreachable(action.presses)
                     continue
-                if isinstance(action, Done) and self._request_finishes_when_done():
+                if isinstance(action, Done) and self._request_finishes_when_done(now):
                     self.request = None
                     await self._save()
                 self._schedule(action, now)
                 break
             self._notify()
 
-    def _request_finishes_when_done(self) -> bool:
+    def _request_finishes_when_done(self, now: datetime) -> bool:
+        """SET and OFF end once satisfied; heat-until ends only when ``until`` has passed."""
         r = self.request
-        return r is not None and (r.kind is not Kind.HEAT or r.until is not None)
+        if r is None:
+            return False
+        if r.kind is Kind.HEAT:
+            return r.until is not None and now >= r.until
+        return True
+
+    async def _after_failure(self) -> None:
+        """Back off before retrying; give up on a one-off setting after ``press_retries``."""
+        self._retry_at = dt_util.utcnow() + self.options.retry_backoff
+        r = self.request
+        if r is not None and r.kind is Kind.SET and self._failures >= self.options.press_retries:
+            _LOGGER.warning("Giving up on setting %s after %d failures", r.setting, self._failures)
+            self.request = None
+            await self._save()
+
+    def _burst_missed_target(self) -> bool:
+        """True if, once the window closes, the planner would burst again: a loop."""
+        idle_at = self.model.idle_at(self.options)
+        if idle_at is None:
+            return False
+        return isinstance(next_action(self.model, self.request, idle_at, self.options), Burst)
+
+    async def _abandon_unreachable(self, presses: int) -> None:
+        """Drop a request a burst cannot satisfy, instead of pressing round the cycle forever."""
+        now = dt_util.utcnow()
+        self.model.observe(UnknownObs(), now, self.options, "executor")
+        self._press_failed(presses, "burst did not reach the requested setting; request dropped")
+        self.request = None
+        await self._save()
 
     async def _burst(self, presses: int) -> bool:
         """Press ``presses`` times back to back. Returns False if the burst failed.
@@ -313,6 +358,9 @@ class BoostTimerController:
 
     def _schedule(self, action: Wait | Done, now: datetime) -> None:
         times = [t for t in (self.model.next_change(now, self.options),) if t]
+        r = self.request
+        if r is not None and r.kind is Kind.HEAT and r.until is not None and r.until > now:
+            times.append(r.until)
         if isinstance(action, Wait):
             times.append(action.until)
         self._cancel_wake()
