@@ -5,7 +5,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry, async_
 
 from custom_components.boost_timer.const import CONF_BOT, CONF_NAME, DOMAIN
 
-BOT = "switch.bot_5616"
+BOT = "button.bot_5616"
+#: The Bot as a switch (its real form); only used by tests that do not load the integration.
+SWITCH_BOT = "switch.bot_5616"
 
 
 @pytest.fixture(autouse=True)
@@ -16,15 +18,13 @@ def auto_enable_custom_integrations(enable_custom_integrations):
 
 @pytest.fixture
 def bot(hass):
-    """The SwitchBot as a switch whose turn_on/turn_off calls are recorded, not executed.
+    """The SwitchBot as a button whose presses are recorded, not executed.
 
-    Returns a dict ``{"turn_on": calls, "turn_off": calls}`` of recorded ServiceCall lists.
+    A button rather than a switch, because the integration's own switch platform would replace a
+    mocked ``switch.turn_on``. Returns the list of recorded ``button.press`` ServiceCalls.
     """
-    hass.states.async_set(BOT, "off")
-    return {
-        "turn_on": async_mock_service(hass, "switch", "turn_on"),
-        "turn_off": async_mock_service(hass, "switch", "turn_off"),
-    }
+    hass.states.async_set(BOT, "unknown")
+    return async_mock_service(hass, "button", "press")
 
 
 @pytest.fixture

@@ -40,14 +40,14 @@ async def test_on_from_off_presses_four(hass, bot, entry, freezer):
     c = await setup(hass, entry)
     assert await c.submit(Request.on(now(), c.options))
     await hass.async_block_till_done()
-    assert len(bot["turn_on"]) == 4
+    assert len(bot) == 4
     assert c.model.setting(now(), c.options) == 4
     assert c.presses_today == 4
     assert c.last_press == now()
 
 
 async def test_state_saved_after_each_press(hass, entry):
-    hass.states.async_set(BOT, "off")
+    hass.states.async_set(BOT, "unknown")
     calls = []
 
     async def flaky(call):
@@ -55,7 +55,7 @@ async def test_state_saved_after_each_press(hass, entry):
         if len(calls) == 3:
             raise HomeAssistantError("bluetooth timeout")
 
-    hass.services.async_register("switch", "turn_on", flaky)
+    hass.services.async_register("button", "press", flaky)
     c = await setup(hass, entry)
     await c.submit(Request.on(now(), c.options))
     await hass.async_block_till_done()
@@ -70,11 +70,11 @@ async def test_rearm_at_expiry(hass, bot, entry, freezer):
     c = await setup(hass, entry)
     await c.submit(Request.on(now(), c.options))
     await hass.async_block_till_done()
-    assert len(bot["turn_on"]) == 4
+    assert len(bot) == 4
     await advance(hass, freezer, 4 * H - timedelta(seconds=1))
-    assert len(bot["turn_on"]) == 4
+    assert len(bot) == 4
     await advance(hass, freezer, timedelta(seconds=2))
-    assert len(bot["turn_on"]) == 8
+    assert len(bot) == 8
     assert c.model.setting(now(), c.options) == 4
 
 
@@ -85,7 +85,7 @@ async def test_restore_after_restart_with_expiry_while_down(hass, bot, entry, fr
     assert await hass.config_entries.async_unload(entry.entry_id)
     freezer.tick(5 * H)
     c = await setup(hass, entry)
-    assert len(bot["turn_on"]) == 8
+    assert len(bot) == 8
     assert c.model.setting(now(), c.options) == 4
 
 
@@ -93,10 +93,10 @@ async def test_set_request_is_one_off(hass, bot, entry, freezer):
     c = await setup(hass, entry)
     await c.submit(Request.set(2, now()))
     await hass.async_block_till_done()
-    assert len(bot["turn_on"]) == 2
+    assert len(bot) == 2
     assert c.request is None
     await advance(hass, freezer, 3 * H)
-    assert len(bot["turn_on"]) == 2
+    assert len(bot) == 2
     assert c.model.setting(now(), c.options) == 0
 
 

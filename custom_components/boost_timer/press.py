@@ -35,13 +35,16 @@ class PressAdapter:
     async def press(self) -> None:
         """Press once and return when Home Assistant reports the call done.
 
-        :raises BotUnavailable: the entity is missing, ``unavailable`` or ``unknown``.
+        :raises BotUnavailable: the entity is missing or ``unavailable`` (a switch also when
+            ``unknown``).
         :raises PressFailed: the service call raised.
         """
         state = self._hass.states.get(self._entity_id)
-        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-            raise BotUnavailable(f"{self._entity_id} is {state.state if state else 'missing'}")
         domain = self._entity_id.split(".", 1)[0]
+        # A button's state is the time it was last pressed, so "unknown" just means "never".
+        blocked = (STATE_UNAVAILABLE,) if domain == "button" else (STATE_UNAVAILABLE, STATE_UNKNOWN)
+        if state is None or state.state in blocked:
+            raise BotUnavailable(f"{self._entity_id} is {state.state if state else 'missing'}")
         if domain == "button":
             service = "press"
         elif self._service == "alternate":

@@ -14,11 +14,11 @@ M = timedelta(minutes=1)
 
 
 def scripted_bot(hass, fail_on=(), on_call=None):
-    """Register switch.turn_on that raises on the given 1-based call numbers.
+    """Register button.press that raises on the given 1-based call numbers.
 
     :returns: the list of calls made (including failed ones).
     """
-    hass.states.async_set(BOT, "off")
+    hass.states.async_set(BOT, "unknown")
     calls = []
 
     async def handler(call):
@@ -28,7 +28,7 @@ def scripted_bot(hass, fail_on=(), on_call=None):
         if len(calls) in fail_on:
             raise HomeAssistantError("bluetooth timeout")
 
-    hass.services.async_register("switch", "turn_on", handler)
+    hass.services.async_register("button", "press", handler)
     return calls
 
 
@@ -41,13 +41,13 @@ async def test_unavailable_bot_retries_without_uncertain(hass, bot, entry, freez
     c = await setup(hass, entry)
     await c.submit(Request.on(now(), c.options))
     await hass.async_block_till_done()
-    assert len(bot["turn_on"]) == 0
+    assert len(bot) == 0
     assert c.model.uncertain is False
     assert c.model.setting(now(), c.options) == 0
 
-    hass.states.async_set(BOT, "off")
+    hass.states.async_set(BOT, "unknown")
     await advance(hass, freezer, 5 * M)
-    assert len(bot["turn_on"]) == 4
+    assert len(bot) == 4
     assert c.model.uncertain is False
 
 
@@ -110,19 +110,19 @@ async def test_flip_back_presses_nothing(hass, bot, entry, freezer):
     c = await setup(hass, entry)
     await c.submit(Request.on(now(), c.options))
     await hass.async_block_till_done()
-    assert len(bot["turn_on"]) == 4
+    assert len(bot) == 4
 
     await advance(hass, freezer, M)
     await c.submit(Request.off(now()))
     await hass.async_block_till_done()
     assert c.request.kind is Kind.OFF
-    assert len(bot["turn_on"]) == 4
+    assert len(bot) == 4
 
     await advance(hass, freezer, M)
     await c.submit(Request.on(now(), c.options))
     await hass.async_block_till_done()
     await advance(hass, freezer, 10 * M)
-    assert len(bot["turn_on"]) == 4
+    assert len(bot) == 4
     assert c.model.setting(now(), c.options) == 4
 
 
@@ -134,8 +134,8 @@ async def test_deferred_off_executes_after_interval(hass, bot, entry, freezer):
     await advance(hass, freezer, M)
     await c.submit(Request.off(now()))
     await hass.async_block_till_done()
-    assert len(bot["turn_on"]) == 4
+    assert len(bot) == 4
 
     await advance(hass, freezer, start + 5 * M - dt_util.utcnow())
-    assert len(bot["turn_on"]) == 5
+    assert len(bot) == 5
     assert c.model.setting(now(), c.options) == 0

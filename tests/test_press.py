@@ -4,7 +4,17 @@ from pytest_homeassistant_custom_component.common import async_mock_service
 
 from custom_components.boost_timer.press import BotUnavailable, PressAdapter, PressFailed
 
-from .conftest import BOT
+from .conftest import SWITCH_BOT as BOT
+
+
+@pytest.fixture
+def bot(hass):
+    """The Bot as a switch whose turn_on/turn_off calls are recorded."""
+    hass.states.async_set(BOT, "off")
+    return {
+        "turn_on": async_mock_service(hass, "switch", "turn_on"),
+        "turn_off": async_mock_service(hass, "switch", "turn_off"),
+    }
 
 
 async def test_turn_on_mode_calls_turn_on(hass, bot):
@@ -26,6 +36,19 @@ async def test_alternate_mode(hass, bot):
     hass.states.async_set(BOT, "off")
     await PressAdapter(hass, BOT, "alternate").press()
     assert len(bot["turn_on"]) == 1
+
+
+async def test_never_pressed_button_still_presses(hass):
+    hass.states.async_set("button.bot", "unknown")
+    calls = async_mock_service(hass, "button", "press")
+    await PressAdapter(hass, "button.bot", "turn_on").press()
+    assert len(calls) == 1
+
+
+async def test_unavailable_button_raises(hass):
+    hass.states.async_set("button.bot", "unavailable")
+    with pytest.raises(BotUnavailable):
+        await PressAdapter(hass, "button.bot", "turn_on").press()
 
 
 async def test_button_entity_uses_press(hass):
