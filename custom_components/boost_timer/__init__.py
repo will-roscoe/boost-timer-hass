@@ -8,7 +8,12 @@ from homeassistant.core import HomeAssistant
 
 from .controller import BoostTimerController
 
-PLATFORMS: list[Platform] = []
+PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 type BoostTimerConfigEntry = ConfigEntry[BoostTimerController]
 

@@ -1,0 +1,18 @@
+{
+  "entity": {
+    "switch": {
+      "heating": { "name": "Heating" }
+    },
+    "select": {
+      "setting": { "name": "Setting" }
+    },
+    "sensor": {
+      "expires_at": { "name": "Expires at" },
+      "heating_until": { "name": "Heating until" }
+    },
+    "binary_sensor": {
+      "heating": { "name": "Heating" },
+      "uncertain": { "name": "Uncertain" }
+    }
+  }
+}
