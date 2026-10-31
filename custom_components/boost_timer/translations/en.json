@@ -1,4 +1,48 @@
 {
+  "config": {
+    "step": {
+      "user": {
+        "title": "Boost timer",
+        "description": "Pick the SwitchBot Bot that presses the timer's button (a switch in press mode, or a button).",
+        "data": {
+          "name": "Name",
+          "bot_entity": "SwitchBot Bot"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This SwitchBot already drives a boost timer."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Boost timer settings",
+        "data": {
+          "on_setting": "Setting \"On\" arms to (steps)",
+          "max_duration": "Stop \"On\" after (0 = never)",
+          "end_tolerance": "End tolerance for heat-for/until",
+          "min_switch_interval": "Minimum time between on/off reversals",
+          "rearm_early": "Re-arm a minute before expiry (no gap, one extra press)",
+          "selection_window": "Button selection window",
+          "burst_margin": "Burst safety margin",
+          "press_retries": "Failures in a row before notifying",
+          "press_service": "How to press a switch Bot",
+          "step": "Minutes per step (LED)",
+          "steps": "Number of steps (LEDs)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "press_service": {
+      "options": {
+        "turn_on": "turn_on",
+        "turn_off": "turn_off",
+        "alternate": "Alternate turn_on / turn_off"
+      }
+    }
+  },
   "entity": {
     "switch": {
       "heating": {
