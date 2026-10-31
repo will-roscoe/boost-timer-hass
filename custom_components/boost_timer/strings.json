@@ -1,18 +1,79 @@
 {
   "entity": {
     "switch": {
-      "heating": { "name": "Heating" }
+      "heating": {
+        "name": "Heating"
+      }
     },
     "select": {
-      "setting": { "name": "Setting" }
+      "setting": {
+        "name": "Setting"
+      }
     },
     "sensor": {
-      "expires_at": { "name": "Expires at" },
-      "heating_until": { "name": "Heating until" }
+      "expires_at": {
+        "name": "Expires at"
+      },
+      "heating_until": {
+        "name": "Heating until"
+      }
     },
     "binary_sensor": {
-      "heating": { "name": "Heating" },
-      "uncertain": { "name": "Uncertain" }
+      "heating": {
+        "name": "Heating"
+      },
+      "uncertain": {
+        "name": "Uncertain"
+      }
+    }
+  },
+  "services": {
+    "heat_for": {
+      "name": "Heat for",
+      "description": "Heat for a duration, or until a time, then stop (within the end tolerance).",
+      "fields": {
+        "config_entry_id": {
+          "name": "Timer",
+          "description": "The timer to use; optional when there is only one."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "How long to heat for."
+        },
+        "until": {
+          "name": "Until",
+          "description": "When to stop heating."
+        }
+      }
+    },
+    "sync": {
+      "name": "Sync",
+      "description": "Tell the integration what the timer's LEDs show, without pressing.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Timer",
+          "description": "The timer to correct; optional when there is only one."
+        },
+        "setting": {
+          "name": "Setting",
+          "description": "Hours (LEDs) lit now; 0 = off."
+        },
+        "remaining": {
+          "name": "Remaining",
+          "description": "Time left, if known; otherwise a full run is assumed."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "entry_required": {
+      "message": "More than one Boost Timer is set up: choose one with config_entry_id."
+    },
+    "entry_not_found": {
+      "message": "No loaded Boost Timer has config entry {entry_id}."
+    },
+    "setting_out_of_range": {
+      "message": "Setting must be between 0 and {steps}."
     }
   }
 }

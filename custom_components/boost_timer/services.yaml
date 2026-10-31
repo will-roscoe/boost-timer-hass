@@ -1,0 +1,30 @@
+heat_for:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: boost_timer
+    duration:
+      example: "01:30:00"
+      selector:
+        duration:
+    until:
+      selector:
+        datetime:
+sync:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: boost_timer
+    setting:
+      required: true
+      example: 2
+      selector:
+        number:
+          min: 0
+          max: 4
+          mode: box
+    remaining:
+      selector:
+        duration:
