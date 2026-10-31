@@ -1,0 +1,56 @@
+"""Press the SwitchBot once: the only place that knows how the Bot is driven.
+
+Hardware quirks (a Bot that ignores ``turn_on`` while HA thinks it is already on, a lost first
+command after the Bot sleeps) are handled here, so the planner and controller never change.
+"""
+
+from __future__ import annotations
+
+from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+
+
+class PressFailed(Exception):
+    """The press service call failed; the press probably did not happen."""
+
+
+class BotUnavailable(PressFailed):
+    """The Bot entity is missing, unavailable or unknown, so nothing was sent."""
+
+
+class PressAdapter:
+    """Send one press to a SwitchBot exposed as a ``switch`` (press mode) or a ``button``."""
+
+    def __init__(self, hass: HomeAssistant, entity_id: str, service: str) -> None:
+        """
+        :param entity_id: the Bot's entity, ``switch.*`` or ``button.*``.
+        :param service: for a ``switch``: ``"turn_on"``, ``"turn_off"`` or ``"alternate"`` (the
+            opposite of its current state); ignored for a ``button``.
+        """
+        self._hass = hass
+        self._entity_id = entity_id
+        self._service = service
+
+    async def press(self) -> None:
+        """Press once and return when Home Assistant reports the call done.
+
+        :raises BotUnavailable: the entity is missing, ``unavailable`` or ``unknown``.
+        :raises PressFailed: the service call raised.
+        """
+        state = self._hass.states.get(self._entity_id)
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            raise BotUnavailable(f"{self._entity_id} is {state.state if state else 'missing'}")
+        domain = self._entity_id.split(".", 1)[0]
+        if domain == "button":
+            service = "press"
+        elif self._service == "alternate":
+            service = "turn_off" if state.state == STATE_ON else "turn_on"
+        else:
+            service = self._service
+        try:
+            await self._hass.services.async_call(
+                domain, service, {"entity_id": self._entity_id}, blocking=True
+            )
+        except HomeAssistantError as err:
+            raise PressFailed(str(err)) from err
