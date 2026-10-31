@@ -18,8 +18,10 @@ directory and adding the integration from the UI.
 
 ## Development
 
+Needs Python 3.14 (Home Assistant 2026.10).
+
 ```bash
-uv venv --python 3.14 .venv
-uv pip install --python .venv -r requirements_test.txt
+python3.14 -m venv .venv
+.venv/bin/pip install -r requirements_test.txt
 .venv/bin/pytest
 ```
