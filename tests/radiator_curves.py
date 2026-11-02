@@ -24,7 +24,7 @@ def series(
     silence: int = 15,
     heartbeat: int = 60,
 ) -> list[Reading]:
-    """Return 1-minute readings of a radiator switching per ``segments``, as the sensor reports them.
+    """Return 1-minute readings of a radiator switching per ``segments``, as its sensor reports.
 
     :param segments: ``(heating, minutes)`` runs, starting from room temperature.
     :param peak_gap: °C above the room the radiator settles at while heating.

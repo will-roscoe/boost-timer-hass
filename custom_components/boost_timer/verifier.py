@@ -1,10 +1,11 @@
 """Detect when a radiator starts and stops heating from a temperature sensor on it (pure Python).
 
-A radiator that is off cools toward the room as ``d(gap)/dt = −c · gap^n`` (gap = radiator − room;
-Newton's law of cooling is ``n = 1``, radiator ratings use about 1.3). :class:`RadiatorDetector` checks
-each reading against where the radiator would be had it been off since an earlier reading: clearly
-above that means heating. It learns ``c`` and ``n`` from this radiator's own cooling, so it needs no
-temperature thresholds: the only temperature constant is the sensor's reporting step.
+A radiator that is off cools toward the room as ``d(gap)/dt = −c · gap^n`` (gap = radiator −
+room; Newton's law of cooling is ``n = 1``, radiator ratings use about 1.3).
+:class:`RadiatorDetector` checks each reading against where the radiator would be had it been off
+since an earlier reading: clearly above that means heating. It learns ``c`` and ``n`` from this
+radiator's own cooling, so it needs no temperature thresholds: the only temperature constant is the
+sensor's reporting step.
 
 Usage::
 
