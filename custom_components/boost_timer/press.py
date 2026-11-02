@@ -48,7 +48,8 @@ class PressAdapter:
         :raises BotUnavailable: the entity is missing or ``unavailable`` (a switch also when
             ``unknown``).
         :raises BotUnreachable: the SwitchBot library could not connect to the Bot.
-        :raises PressFailed: the service call raised anything else, or took over :data:`PRESS_TIMEOUT`.
+        :raises PressFailed: the service call raised anything else, or took over
+            :data:`PRESS_TIMEOUT`.
         """
         state = self._hass.states.get(self._entity_id)
         domain = self._entity_id.split(".", 1)[0]
