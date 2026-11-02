@@ -32,7 +32,7 @@ from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_BOT, CONF_PRESS_SERVICE, DEFAULTS, DOMAIN
+from .const import CONF_BOT, CONF_PRESS_SERVICE, DEFAULTS, DOMAIN, SUPPRESS_AFTER_PRESS
 from .model import UNREACHABLE_BACKOFF, Observation, Options, TimerModel, UnknownObs
 from .planner import Burst, Done, Kind, Request, Wait, next_action
 from .press import BotUnavailable, BotUnreachable, PressAdapter, PressFailed
@@ -71,6 +71,8 @@ class BoostTimerController:
         self._unsub_wake: CALLBACK_TYPE | None = None
         self._unsub_started: CALLBACK_TYPE | None = None
         self._stopped = False
+        #: Radiator sync, when a radiator sensor is configured (set up by the integration).
+        self.sync: Any = None
 
         self.model = TimerModel()
         self.request: Request | None = None
@@ -156,12 +158,21 @@ class BoostTimerController:
         self._kick()
         return True
 
-    async def observe(self, obs: Observation, source: str) -> None:
-        """Correct the model from an observation (e.g. a sync), then re-plan."""
-        self.model.observe(obs, dt_util.utcnow(), self.options, source)
+    async def observe(self, obs: Observation, source: str) -> bool:
+        """Correct the model from an observation (e.g. a sync), then re-plan.
+
+        :returns: True if the model changed.
+        """
+        changed = self.model.observe(obs, dt_util.utcnow(), self.options, source)
         await self._save()
         self._notify()
         self._kick()
+        return changed
+
+    def busy(self, now: datetime) -> bool:
+        """Return True while a burst is running or within ``SUPPRESS_AFTER_PRESS`` of a press."""
+        last = self.model.last_press_at
+        return self._lock.locked() or (last is not None and now - last < SUPPRESS_AFTER_PRESS)
 
     def add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:
         """Call ``cb`` after every change; returns a function that removes it."""
