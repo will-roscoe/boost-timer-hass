@@ -30,7 +30,8 @@
           "press_retries": "Failures in a row before notifying",
           "press_service": "How to press a switch Bot",
           "step": "Minutes per step (LED)",
-          "steps": "Number of steps (LEDs)"
+          "steps": "Number of steps (LEDs)",
+          "sync_corrections": "Correct the timer from the radiator sensor"
         }
       }
     },

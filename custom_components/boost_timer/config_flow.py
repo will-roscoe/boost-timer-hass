@@ -39,6 +39,7 @@ from .const import (
     CONF_SELECTION_WINDOW,
     CONF_STEP,
     CONF_STEPS,
+    CONF_SYNC_CORRECTIONS,
     DEFAULTS,
     DOMAIN,
     PRESS_SERVICES,
@@ -70,6 +71,7 @@ OPTION_FIELDS = {
     ),
     CONF_STEP: _number(1, 240, unit="min"),
     CONF_STEPS: _number(1, 12),
+    CONF_SYNC_CORRECTIONS: BooleanSelector(),
 }
 
 
