@@ -36,6 +36,9 @@ STRETCHES_KEPT = 5
 PAIRS_KEPT = 200
 #: Learning looks back at most this far for a clear fall.
 LEARN_WINDOW = timedelta(minutes=15)
+#: Undecided over readings spanning this long means the radiator is near the room (not heating): a
+#: heating radiator is always far enough above the room for a decision within it.
+COLD_SPAN = timedelta(minutes=30)
 #: Physically plausible range of the cooling exponent.
 N_RANGE = (1.0, 2.0)
 
@@ -142,6 +145,23 @@ class RadiatorDetector:
     def last_reading_at(self) -> datetime | None:
         """When the last accepted reading was taken."""
         return self._last_at
+
+    @property
+    def decided(self) -> bool:
+        """True once the detector has a state of its own: not before its first decision, and not
+        after a restore until it decides again from new readings."""
+        return self.state is not None and not self._restored
+
+    def cold(self) -> bool:
+        """Return True if the readings show the radiator not heating: a decided "off", or no
+        decision possible over readings spanning :data:`COLD_SPAN` while the radiator has not risen
+        against the room (it stays near the room)."""
+        if self.decided:
+            return self.state is False
+        if len(self._buf) < 2 or self._buf[-1].at - self._buf[0].at < COLD_SPAN:
+            return False
+        gaps = [b.radiator - b.room for b in self._buf]
+        return gaps[-1] - min(gaps) < 2 * self.step
 
     @property
     def _c_decide(self) -> float:

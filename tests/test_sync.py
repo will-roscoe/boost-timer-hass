@@ -254,3 +254,26 @@ async def test_unchanged_reading_counts_against_blindness(hass, bot, sync_entry,
         hass.states.async_set(RAD, "20.0")
         await hass.async_block_till_done()
     assert not c.sync.blind(now())
+
+
+async def test_state_unknown_after_reload_until_detector_decides(hass, bot, sync_entry, freezer):
+    c = await setup(hass, sync_entry)
+    await feed(hass, freezer, series(now(), 20.0, [(True, 60)]))
+    assert c.sync.state is True
+    c = await restart(hass, sync_entry)
+    assert c.sync.state is None
+
+
+async def test_never_started_waits_for_a_decision_after_reload(hass, bot, sync_entry, freezer):
+    """A restored, undecided detector's saved "off" must not count as no heating."""
+    c = await setup(hass, sync_entry)
+    c.sync.detector.state = False
+    t = now()
+    await c.submit(Request.on(t, c.options))
+    await hass.async_block_till_done()
+    c = await restart(hass, sync_entry)
+    freezer.move_to(t + 50 * M)
+    hass.states.async_set(RAD, "48.6")  # first reading after the restart: nothing to compare with
+    await hass.async_block_till_done()
+    assert c.sync.last_correction is None
+    assert len(bot) == 4

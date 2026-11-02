@@ -137,3 +137,27 @@ def test_restored_off_detector_seeing_a_hot_radiator_turns_on():
     restored = RadiatorDetector.from_dict(d.to_dict())
     _, events = run(hot, restored)
     assert [(e.heating, e.initial) for e in events] == [(True, True)]
+
+
+def test_restored_detector_is_undecided_until_it_decides():
+    readings = series(START, 20.0, [(True, 400)], heartbeat=20)
+    d, _ = run(readings[:30])
+    assert d.decided
+    restored = RadiatorDetector.from_dict(d.to_dict())
+    assert not restored.decided
+    run([r for r in readings if r.at > START + 150 * M], restored)
+    assert restored.decided and restored.state is True
+
+
+def test_cold_needs_a_decided_off_or_half_an_hour_undecided():
+    flat = [Reading(START + i * 10 * M, 20.2 if i % 2 else 20.0, 20.0) for i in range(5)]
+    d, _ = run(flat[:3])  # 20 min of near-room readings
+    assert not d.cold()
+    d.update(flat[3])  # 30 min
+    assert d.cold()
+    hot = series(START, 20.0, [(True, 400)], heartbeat=20)
+    one = RadiatorDetector()
+    one.update(hot[-1])
+    assert not one.cold()  # a single reading proves nothing
+    off, _ = run(series(START, 20.0, [(True, 120), (False, 60)]))
+    assert off.cold()

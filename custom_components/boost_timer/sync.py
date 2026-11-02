@@ -195,7 +195,7 @@ class RadiatorSync:
     @property
     def state(self) -> bool | None:
         """The detector's view: True heating, False not, None undecided or blind."""
-        if self.blind(dt_util.utcnow()):
+        if self.blind(dt_util.utcnow()) or not self.detector.decided:
             return None
         return self.detector.state
 
@@ -239,7 +239,7 @@ class RadiatorSync:
             return
         deadline = rs + NEVER_STARTED_AFTER
         last = self.detector.last_reading_at
-        if now < deadline or last is None or last < deadline or self.detector.state is True:
+        if now < deadline or last is None or last < deadline or not self.detector.cold():
             return
         self._never_started_for = rs
         await self.apply(SwitchEvent(False, rs, rs, rs, now, False), now)
