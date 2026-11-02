@@ -74,7 +74,7 @@ async def test_options_flow_shows_defaults(hass, bot, entry):
     ):
         assert defaults[key] == DEFAULTS[key], key
     assert defaults[CONF_PRESS_GAP] == 0  # set by the entry fixture
-    assert DEFAULTS[CONF_PRESS_GAP] == 2
+    assert DEFAULTS[CONF_PRESS_GAP] == 3
 
 
 async def test_options_flow_saves_and_controller_uses_them(hass, bot, entry):
