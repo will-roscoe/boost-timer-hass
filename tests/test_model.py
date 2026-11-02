@@ -165,3 +165,121 @@ def test_round_trip_dict():
 def test_on_setting_clamped_to_steps():
     assert Options.from_mapping({"on_setting": 5}).on_setting == 4
     assert Options.from_mapping({"on_setting": 4, "steps": 3}).on_setting == 3
+
+
+# ---- v2: back-dated heating observations ----------------------------------------------------
+
+M = timedelta(minutes=1)
+
+
+def four_hours() -> TimerModel:
+    """A model after a 4-press burst landing at T0 (presses 3 s apart)."""
+    m = TimerModel()
+    presses(m, 0, 3, 6, 9)
+    return m
+
+
+def off(m, at, lo=None, hi=None, now=None):
+    return m.observe(HeatingObs(False, at, lo, hi), now or (hi or at), OPTS, source="verifier")
+
+
+def test_run_started_at_is_last_press_of_burst():
+    m = four_hours()
+    assert m.run_started_at == T0 + 9 * S
+    assert m.setting(T0 + 10 * S, OPTS) == 4
+
+
+def test_off_press_keeps_run_started_at():
+    m = four_hours()
+    m.apply_press(T0 + 30 * S, OPTS)  # after the gap: off
+    assert m.setting(T0 + 31 * S, OPTS) == 0
+    assert m.run_started_at == T0 + 9 * S
+
+
+def test_ended_early_rounds_to_whole_hours():
+    """Will's example: set to 4h 140 min ago, stopped 20 min ago: it was 2h."""
+    m = four_hours()
+    rs = m.run_started_at
+    assert off(m, T0 + 120 * M, T0 + 112 * M, T0 + 130 * M, now=T0 + 140 * M)
+    assert m.expires_at == rs + 120 * M
+    assert m.setting(T0 + 140 * M, OPTS) == 0
+    assert m.uncertain is False
+
+
+def test_natural_end_is_agreement():
+    m = four_hours()
+    expires = m.expires_at
+    assert not off(m, T0 + 241 * M, T0 + 235 * M, T0 + 258 * M, now=T0 + 260 * M)
+    assert m.expires_at == expires
+
+
+def test_bracket_straddling_half_hour_marks_uncertain_off():
+    m = four_hours()
+    assert off(m, T0 + 90 * M, T0 + 80 * M, T0 + 100 * M, now=T0 + 101 * M)
+    assert m.expires_at is None
+    assert m.uncertain is True
+
+
+def test_never_started_is_zero_hours():
+    m = four_hours()
+    rs = m.run_started_at
+    assert off(m, rs, rs, rs, now=T0 + 50 * M)
+    assert m.expires_at is None
+    assert m.uncertain is False
+
+
+def test_off_before_run_start_ignored():
+    m = four_hours()
+    expires = m.expires_at
+    assert not off(m, T0 - 10 * M, T0 - 20 * M, T0 - 5 * M, now=T0 + 5 * M)
+    assert m.expires_at == expires
+
+
+def test_hand_press_adopted_as_one_hour():
+    m = TimerModel()
+    assert m.observe(HeatingObs(True, T0), T0 + 20 * M, OPTS, source="verifier")
+    assert m.expires_at == T0 + 60 * M
+    assert m.uncertain is True
+    assert m.adopted is True
+    assert m.run_started_at == T0
+    assert m.last_press_at == T0
+
+
+def test_adopted_run_extends_hourly_up_to_steps():
+    m = TimerModel()
+    m.observe(HeatingObs(True, T0), T0 + 20 * M, OPTS, source="verifier")
+    seen = []
+    for minutes in (60, 120, 180, 240, 300):
+        m.tick(T0 + minutes * M, OPTS)
+        seen.append(m.expires_at)
+    assert seen == [T0 + 120 * M, T0 + 180 * M, T0 + 240 * M, T0 + 240 * M, T0 + 240 * M]
+
+
+def test_adopted_run_then_off_rounds_from_hand_press():
+    m = TimerModel()
+    m.observe(HeatingObs(True, T0), T0 + 20 * M, OPTS, source="verifier")
+    m.tick(T0 + 60 * M, OPTS)
+    m.tick(T0 + 120 * M, OPTS)
+    assert m.expires_at == T0 + 180 * M
+    assert off(m, T0 + 125 * M, T0 + 118 * M, T0 + 140 * M, now=T0 + 141 * M)
+    assert m.expires_at == T0 + 120 * M
+    assert m.adopted is False
+
+
+def test_press_clears_adopted():
+    m = TimerModel()
+    m.observe(HeatingObs(True, T0), T0 + 20 * M, OPTS, source="verifier")
+    m.apply_press(T0 + 30 * M, OPTS)
+    assert m.adopted is False
+
+
+def test_round_trip_and_v1_data():
+    m = TimerModel()
+    m.observe(HeatingObs(True, T0), T0 + 20 * M, OPTS, source="verifier")
+    back = TimerModel.from_dict(m.to_dict())
+    assert back.run_started_at == T0
+    assert back.adopted is True
+    v1 = {"expires_at": (T0 + H).isoformat(), "last_press_at": T0.isoformat(), "uncertain": False}
+    old = TimerModel.from_dict(v1)
+    assert old.run_started_at == T0
+    assert old.adopted is False
