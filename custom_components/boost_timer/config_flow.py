@@ -32,6 +32,7 @@ from .const import (
     CONF_MIN_SWITCH_INTERVAL,
     CONF_NAME,
     CONF_ON_SETTING,
+    CONF_PRESS_GAP,
     CONF_PRESS_RETRIES,
     CONF_PRESS_SERVICE,
     CONF_REARM_EARLY,
@@ -62,6 +63,7 @@ OPTION_FIELDS = {
     CONF_REARM_EARLY: BooleanSelector(),
     CONF_SELECTION_WINDOW: _number(1, 30, 0.5, "s"),
     CONF_BURST_MARGIN: _number(0, 5, 0.5, "s"),
+    CONF_PRESS_GAP: _number(0, 10, 0.5, "s"),
     CONF_PRESS_RETRIES: _number(1, 10),
     CONF_PRESS_SERVICE: SelectSelector(
         SelectSelectorConfig(options=PRESS_SERVICES, translation_key=CONF_PRESS_SERVICE)
@@ -105,6 +107,10 @@ class BoostTimerOptionsFlow(OptionsFlowWithReload):
         if user_input is not None:
             if user_input[CONF_ON_SETTING] > user_input[CONF_STEPS]:
                 errors[CONF_ON_SETTING] = "on_setting_above_steps"
+            elif user_input[CONF_PRESS_GAP] >= (
+                user_input[CONF_SELECTION_WINDOW] - user_input[CONF_BURST_MARGIN]
+            ):
+                errors[CONF_PRESS_GAP] = "press_gap_too_long"
             else:
                 return self.async_create_entry(data=user_input)
         current = {**DEFAULTS, **self.config_entry.options, **(user_input or {})}

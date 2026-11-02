@@ -33,9 +33,9 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_BOT, CONF_PRESS_SERVICE, DEFAULTS, DOMAIN
-from .model import Observation, Options, TimerModel, UnknownObs
+from .model import UNREACHABLE_BACKOFF, Observation, Options, TimerModel, UnknownObs
 from .planner import Burst, Done, Kind, Request, Wait, next_action
-from .press import BotUnavailable, PressAdapter, PressFailed
+from .press import BotUnavailable, BotUnreachable, PressAdapter, PressFailed
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,6 +66,7 @@ class BoostTimerController:
         )
         self._lock = asyncio.Lock()
         self._press_task: asyncio.Task[None] | None = None
+        self._next_backoff = self.options.retry_backoff
         self._listeners: list[Callable[[], None]] = []
         self._unsub_wake: CALLBACK_TYPE | None = None
         self._unsub_started: CALLBACK_TYPE | None = None
@@ -250,7 +251,7 @@ class BoostTimerController:
 
     async def _after_failure(self) -> None:
         """Back off before retrying; give up on a one-off setting after ``press_retries``."""
-        self._retry_at = dt_util.utcnow() + self.options.retry_backoff
+        self._retry_at = dt_util.utcnow() + self._next_backoff
         r = self.request
         if r is not None and r.kind is Kind.SET and self._failures >= self.options.press_retries:
             _LOGGER.warning("Giving up on setting %s after %d failures", r.setting, self._failures)
@@ -283,15 +284,17 @@ class BoostTimerController:
 
         Counts from the model after every press, because a first press can take minutes to land
         and the timer may have changed by then. A burst to off is always one press. At most
-        ``steps + 1`` presses, the most any setting can need.
+        ``steps + 1`` presses, the most any setting can need, with ``press_gap`` between them.
 
         An unavailable Bot before the first press changes nothing. Any other failure, a press
         after the first that took so long the selection window may have closed, or being stopped
         mid-press marks the model uncertain.
         """
         window = self.options.selection_window - self.options.burst_margin
+        last_landed = None
         for i in range(self.options.steps + 1):
-            started = dt_util.utcnow()
+            if i > 0:
+                await asyncio.sleep(self.options.press_gap.total_seconds())
             self._press_task = asyncio.ensure_future(self._press.press())
             try:
                 await self._press_task
@@ -299,6 +302,11 @@ class BoostTimerController:
                 if not (i == 0 and isinstance(err, BotUnavailable)):
                     self.model.observe(UnknownObs(), dt_util.utcnow(), self.options, "executor")
                     await self._save()
+                self._next_backoff = (
+                    UNREACHABLE_BACKOFF
+                    if isinstance(err, BotUnreachable)
+                    else self.options.retry_backoff
+                )
                 self._press_failed(i + 1, str(err))
                 return False
             except asyncio.CancelledError:
@@ -313,13 +321,15 @@ class BoostTimerController:
             self.model.apply_press(now, self.options)
             self._count_press(now)
             self._check_heating(now)
-            slow = i > 0 and now - started > window
+            slow = last_landed is not None and now - last_landed > window
+            elapsed = now - last_landed if last_landed else None
+            last_landed = now
             if slow:
                 self.model.observe(UnknownObs(), now, self.options, "executor")
             await self._save()
             self._notify()
             if slow:
-                self._press_failed(i + 1, f"press took {(now - started).total_seconds():.1f} s")
+                self._press_failed(i + 1, f"presses were {elapsed.total_seconds():.1f} s apart")
                 return False
             if burst.target == 0 or self.model.setting(now, self.options) == burst.target:
                 break

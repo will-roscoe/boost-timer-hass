@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import replace
 from datetime import timedelta
+import time
 
 from homeassistant.components.persistent_notification import _async_get_or_create_notifications
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
@@ -272,3 +273,45 @@ async def test_stop_does_not_wait_for_a_press_stuck_connecting(hass, entry):
     async with asyncio.timeout(2):
         await c.async_stop()
     assert c.model.uncertain is True
+
+
+async def test_burst_leaves_press_gap_between_presses(hass, entry):
+    """The Bot acknowledges at once but its arm takes time, so bursts must not outrun it."""
+    hass.states.async_set(BOT, "unknown")
+    at = []
+
+    async def handler(call):
+        at.append(time.monotonic())
+
+    hass.services.async_register("button", "press", handler)
+    c = await setup(hass, entry)
+    c.options = replace(c.options, press_gap=timedelta(seconds=0.05))
+    await c.submit(Request.set(3, now()))
+    await hass.async_block_till_done()
+    assert len(at) == 3
+    assert all(b - a >= 0.05 for a, b in zip(at, at[1:], strict=False))
+
+
+class BleakNotFoundError(Exception):
+    """Stands in for the error bleak_retry_connector raises when it gives up connecting."""
+
+
+async def test_failed_connection_is_not_uncertain_and_retries_sooner(hass, entry, freezer):
+    hass.states.async_set(BOT, "unknown")
+    calls = []
+
+    async def handler(call):
+        calls.append(call)
+        if len(calls) == 1:
+            raise BleakNotFoundError("Failed to connect after 7 attempt(s)")
+
+    hass.services.async_register("button", "press", handler)
+    c = await setup(hass, entry)
+    await c.submit(Request.set(1, now()))
+    await hass.async_block_till_done()
+    assert len(calls) == 1
+    assert c.model.uncertain is False
+
+    await advance(hass, freezer, timedelta(seconds=61))
+    assert len(calls) == 2
+    assert c.model.setting(now(), c.options) == 1

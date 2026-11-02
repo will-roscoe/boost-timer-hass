@@ -26,6 +26,7 @@
           "rearm_early": "Re-arm a minute before expiry (no gap, one extra press)",
           "selection_window": "Button selection window",
           "burst_margin": "Burst safety margin",
+          "press_gap": "Gap between presses in a burst",
           "press_retries": "Failures in a row before notifying",
           "press_service": "How to press a switch Bot",
           "step": "Minutes per step (LED)",
@@ -34,7 +35,8 @@
       }
     },
     "error": {
-      "on_setting_above_steps": "\"On\" can't arm above the number of steps."
+      "on_setting_above_steps": "\"On\" can't arm above the number of steps.",
+      "press_gap_too_long": "The gap must be shorter than the selection window minus the safety margin."
     }
   },
   "selector": {

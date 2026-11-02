@@ -23,6 +23,7 @@ from .const import (
     CONF_MAX_DURATION,
     CONF_MIN_SWITCH_INTERVAL,
     CONF_ON_SETTING,
+    CONF_PRESS_GAP,
     CONF_PRESS_RETRIES,
     CONF_REARM_EARLY,
     CONF_SELECTION_WINDOW,
@@ -37,6 +38,8 @@ IDLE_MARGIN = timedelta(seconds=1)
 REARM_LEAD = timedelta(seconds=60)
 #: Wait before retrying after a failed press.
 RETRY_BACKOFF = timedelta(minutes=5)
+#: Wait before retrying after the Bot could not be connected to, so nothing was pressed.
+UNREACHABLE_BACKOFF = timedelta(minutes=1)
 
 
 @dataclass(frozen=True)
@@ -47,6 +50,7 @@ class Options:
     steps: int
     selection_window: timedelta
     burst_margin: timedelta
+    press_gap: timedelta
     press_retries: int
     on_setting: int
     rearm_early: bool
@@ -73,6 +77,7 @@ class Options:
             steps=steps,
             selection_window=timedelta(seconds=float(v[CONF_SELECTION_WINDOW])),
             burst_margin=timedelta(seconds=float(v[CONF_BURST_MARGIN])),
+            press_gap=timedelta(seconds=float(v[CONF_PRESS_GAP])),
             press_retries=int(v[CONF_PRESS_RETRIES]),
             # Above ``steps`` a burst would cycle back round to off and loop.
             on_setting=min(int(v[CONF_ON_SETTING]), steps),

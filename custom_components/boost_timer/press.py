@@ -25,6 +25,10 @@ class BotUnavailable(PressFailed):
     """The Bot entity is missing, unavailable or unknown, so nothing was sent."""
 
 
+class BotUnreachable(BotUnavailable):
+    """The SwitchBot library gave up connecting to the Bot, so nothing was sent."""
+
+
 class PressAdapter:
     """Send one press to a SwitchBot exposed as a ``switch`` (press mode) or a ``button``."""
 
@@ -43,7 +47,8 @@ class PressAdapter:
 
         :raises BotUnavailable: the entity is missing or ``unavailable`` (a switch also when
             ``unknown``).
-        :raises PressFailed: the service call raised anything, or took over :data:`PRESS_TIMEOUT`.
+        :raises BotUnreachable: the SwitchBot library could not connect to the Bot.
+        :raises PressFailed: the service call raised anything else, or took over :data:`PRESS_TIMEOUT`.
         """
         state = self._hass.states.get(self._entity_id)
         domain = self._entity_id.split(".", 1)[0]
@@ -63,4 +68,7 @@ class PressAdapter:
                     domain, service, {"entity_id": self._entity_id}, blocking=True
                 )
         except Exception as err:  # noqa: BLE001 - any error means "probably not pressed"
+            # Matched by name: bleak_retry_connector is the SwitchBot integration's dependency.
+            if type(err).__name__ == "BleakNotFoundError":
+                raise BotUnreachable(str(err)) from err
             raise PressFailed(str(err) or type(err).__name__) from err

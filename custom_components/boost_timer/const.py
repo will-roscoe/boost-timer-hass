@@ -10,6 +10,8 @@ CONF_BOT = "bot_entity"
 CONF_SELECTION_WINDOW = "selection_window"
 #: Seconds of slack: a press call slower than ``selection_window - burst_margin`` ends a burst.
 CONF_BURST_MARGIN = "burst_margin"
+#: Seconds to wait between presses in a burst: the Bot acknowledges at once, but its arm takes time.
+CONF_PRESS_GAP = "press_gap"
 CONF_PRESS_RETRIES = "press_retries"
 #: Setting (in steps) that "On" arms the timer to.
 CONF_ON_SETTING = "on_setting"
@@ -32,6 +34,7 @@ PRESS_SERVICES = ["turn_on", "turn_off", "alternate"]
 DEFAULTS: dict[str, Any] = {
     CONF_SELECTION_WINDOW: 5,
     CONF_BURST_MARGIN: 1,
+    CONF_PRESS_GAP: 2,
     CONF_PRESS_RETRIES: 2,
     CONF_ON_SETTING: 4,
     CONF_REARM_EARLY: False,
