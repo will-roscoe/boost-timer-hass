@@ -169,6 +169,18 @@ class BoostTimerController:
         self._kick()
         return changed
 
+    async def extend_adopted(self, now: datetime) -> bool:
+        """Extend an adopted hand-press run that is known to be still heating, then re-plan.
+
+        :returns: True if the run was extended (see :meth:`.model.TimerModel.extend_adopted`).
+        """
+        if not self.model.extend_adopted(now, self.options):
+            return False
+        await self._save()
+        self._notify()
+        self._kick()
+        return True
+
     def busy(self, now: datetime) -> bool:
         """Return True while a burst is running or within ``SUPPRESS_AFTER_PRESS`` of a press."""
         last = self.model.last_press_at

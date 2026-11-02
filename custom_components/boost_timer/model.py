@@ -36,6 +36,8 @@ from .const import (
 IDLE_MARGIN = timedelta(seconds=1)
 #: How early ``rearm_early`` re-arms before expiry.
 REARM_LEAD = timedelta(seconds=60)
+#: An adopted hand-press run may be extended this close to its assumed end.
+EXTEND_LEAD = timedelta(minutes=15)
 #: Wait before retrying after a failed press.
 RETRY_BACKOFF = timedelta(minutes=5)
 #: Wait before retrying after the Bot could not be connected to, so nothing was pressed.
@@ -191,12 +193,13 @@ class TimerModel:
         A :class:`HeatingObs` with ``at`` is back-dated:
 
         - Stopped: the run lasted whole steps, ``h = round((at − run_started_at) / step)``. If
-          ``h`` is at least the run believed, this is agreement and nothing changes. Otherwise the
+          ``h`` is at least the run believed, or the window reaches the believed end, this is
+          agreement and nothing changes. Otherwise the
           run becomes ``h`` steps (``h = 0``: the presses never took). If ``lo`` and ``hi`` round
           to different ``h``, the model goes off and uncertain instead. Ignored before the run
           started.
         - Started while the model was off at ``at``: adopt it as a hand press, 1 step from ``at``,
-          uncertain, extended by :meth:`tick` while nothing says it stopped.
+          uncertain, extended by :meth:`extend_adopted` while it is seen heating.
 
         :param source: who observed it (``"sync"``, ``"verifier"``, ``"executor"``), recorded in
             :attr:`last_correction` when the model changes.
@@ -240,6 +243,8 @@ class TimerModel:
         rs, expires = self.run_started_at, self.expires_at
         if rs is None or expires is None or at < rs:
             return
+        if (obs.hi or at) >= expires:
+            return  # it may have run to the end HA expected: agreement
         believed = round((expires - rs) / opts.step)
         h_lo = round(((obs.lo or at) - rs) / opts.step)
         h_hi = round(((obs.hi or at) - rs) / opts.step)
@@ -260,19 +265,27 @@ class TimerModel:
 
     def tick(self, now: datetime, opts: Options) -> None:
         """Clear ``uncertain`` once the timer must have run out (``steps`` steps after the last
-        press or correction), and extend an adopted hand-press run by a step each time its assumed
-        end passes, up to ``steps`` from when it started."""
+        press or correction)."""
         until = self._uncertain_until(opts)
         if self.uncertain and until is not None and now >= until:
             self.uncertain = False
-        while (
-            self.adopted
-            and self.expires_at is not None
-            and self.run_started_at is not None
-            and self.expires_at <= now
-            and self.expires_at - self.run_started_at < opts.steps * opts.step
-        ):
-            self.expires_at += opts.step
+
+    def extend_adopted(self, now: datetime, opts: Options) -> bool:
+        """Extend an adopted hand-press run by one step, because it is known to be still heating.
+
+        Only within :data:`EXTEND_LEAD` of its assumed end (or after it), and never past ``steps``
+        from when it started. Callers must have evidence of heating: without it the run ends when
+        assumed.
+
+        :returns: True if the run was extended.
+        """
+        e, rs = self.expires_at, self.run_started_at
+        if not self.adopted or e is None or rs is None:
+            return False
+        if e - now > EXTEND_LEAD or e - rs >= opts.steps * opts.step:
+            return False
+        self.expires_at = e + opts.step
+        return True
 
     def next_change(self, now: datetime, opts: Options) -> datetime | None:
         """Return the next time the displayed setting changes or uncertainty clears, if any."""

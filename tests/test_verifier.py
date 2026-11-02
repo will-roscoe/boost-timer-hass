@@ -109,3 +109,12 @@ def test_first_switch_after_restore_is_initial():
     restored.update(Reading(last.at + M, last.radiator, 20.0))
     event = restored.update(Reading(last.at + 15 * M, last.radiator - 12, 20.0))
     assert event is not None and event.initial and not event.heating
+
+
+@pytest.mark.parametrize("offset", [0.3, 0.5, 0.8])
+def test_cold_sensor_offset_is_not_heating(offset):
+    """A cold radiator whose sensor reads a little above the room average is not heating."""
+    _, events = run(
+        series(START, 20.0, [(True, 120), (False, 600)], offset=offset, room_wobble=0.3)
+    )
+    assert [(e.heating, e.initial) for e in events] == [(True, True), (False, False)]

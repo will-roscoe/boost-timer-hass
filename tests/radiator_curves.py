@@ -23,6 +23,8 @@ def series(
     heat_tau: float = 20.0,
     silence: int = 15,
     heartbeat: int = 60,
+    offset: float = 0.0,
+    room_wobble: float = 0.0,
 ) -> list[Reading]:
     """Return 1-minute readings of a radiator switching per ``segments``, as its sensor reports.
 
@@ -32,6 +34,8 @@ def series(
     :param heat_tau: minutes for the heating approach to the peak (first order).
     :param silence: minutes with no readings after every switch except the first segment's start.
     :param heartbeat: a reading is sent after this many minutes even without a change.
+    :param offset: the radiator sensor's bias in °C: a cold radiator reads this much above the room.
+    :param room_wobble: amplitude in °C of a slow (90 min) swing in the room temperature.
     :returns: readings quantised to :data:`SENSOR_STEP`, sent only when the value changed by at
         least one step or ``heartbeat`` passed.
     """
@@ -47,12 +51,13 @@ def series(
             else:
                 gap = off_gap(gap, 1, c, n) if gap > 0 else 0.0
             minute += 1
-            value = _q(room + gap)
+            room_now = round(room + room_wobble * math.sin(2 * math.pi * minute / 90), 1)
+            value = _q(room_now + gap + offset)
             if minute < quiet_until:
                 continue
             due = last_sent is None or minute - last_sent[0] >= heartbeat
             if due or abs(value - last_sent[1]) >= SENSOR_STEP - 1e-9:
-                out.append(Reading(start + timedelta(minutes=minute), value, room))
+                out.append(Reading(start + timedelta(minutes=minute), value, room_now))
                 last_sent = (minute, value)
     return out
 

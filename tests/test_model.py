@@ -249,17 +249,33 @@ def test_adopted_run_extends_hourly_up_to_steps():
     m = TimerModel()
     m.observe(HeatingObs(True, T0), T0 + 20 * M, OPTS, source="verifier")
     seen = []
-    for minutes in (60, 120, 180, 240, 300):
-        m.tick(T0 + minutes * M, OPTS)
+    for minutes in (55, 115, 175, 235, 295):
+        m.extend_adopted(T0 + minutes * M, OPTS)
         seen.append(m.expires_at)
     assert seen == [T0 + 120 * M, T0 + 180 * M, T0 + 240 * M, T0 + 240 * M, T0 + 240 * M]
+
+
+def test_adopted_run_extends_only_near_its_end():
+    m = TimerModel()
+    m.observe(HeatingObs(True, T0), T0 + 20 * M, OPTS, source="verifier")
+    assert not m.extend_adopted(T0 + 30 * M, OPTS)
+    assert m.expires_at == T0 + 60 * M
+
+
+def test_tick_does_not_extend_adopted_run():
+    """Without evidence of heating, an adopted run ends when assumed, as without a sensor."""
+    m = TimerModel()
+    m.observe(HeatingObs(True, T0), T0 + 20 * M, OPTS, source="verifier")
+    m.tick(T0 + 61 * M, OPTS)
+    assert m.expires_at == T0 + 60 * M
+    assert m.setting(T0 + 61 * M, OPTS) == 0
 
 
 def test_adopted_run_then_off_rounds_from_hand_press():
     m = TimerModel()
     m.observe(HeatingObs(True, T0), T0 + 20 * M, OPTS, source="verifier")
-    m.tick(T0 + 60 * M, OPTS)
-    m.tick(T0 + 120 * M, OPTS)
+    m.extend_adopted(T0 + 55 * M, OPTS)
+    m.extend_adopted(T0 + 115 * M, OPTS)
     assert m.expires_at == T0 + 180 * M
     assert off(m, T0 + 125 * M, T0 + 118 * M, T0 + 140 * M, now=T0 + 141 * M)
     assert m.expires_at == T0 + 120 * M
@@ -283,3 +299,13 @@ def test_round_trip_and_v1_data():
     old = TimerModel.from_dict(v1)
     assert old.run_started_at == T0
     assert old.adopted is False
+
+
+def test_wide_bracket_around_natural_end_is_agreement():
+    """Steady hot readings come 25-50 min apart, so a normal end can have a wide bracket."""
+    m = TimerModel()
+    presses(m, 0, 3)  # 2h
+    end = m.expires_at
+    assert not off(m, end - 10 * M, end - 40 * M, end + 20 * M, now=end + 21 * M)
+    assert m.expires_at == end
+    assert m.uncertain is False

@@ -167,7 +167,8 @@ class RadiatorDetector:
     def _decide(self, r: Reading) -> SwitchEvent | None:
         gap = r.radiator - r.room
         c = self._c_decide
-        for ref in reversed(self._buf[:-1]):
+        for i in range(len(self._buf) - 2, -1, -1):
+            ref = self._buf[i]
             gap0 = ref.radiator - r.room
             if gap0 <= 0:
                 continue
@@ -175,6 +176,12 @@ class RadiatorDetector:
             predicted = off_gap(gap0, dt, c, self.n)
             if gap0 - predicted >= 2 * self.step:
                 heating = gap - predicted > self.step
+                if heating and self.state is not True:
+                    # Turning on needs the radiator to rise against the room from its lowest point
+                    # since the reference, so a cold sensor that reads a little above the room
+                    # average is not taken for heating.
+                    low = min(b.radiator - b.room for b in self._buf[i:-1])
+                    heating = gap - low >= 2 * self.step
                 break
         else:
             return None

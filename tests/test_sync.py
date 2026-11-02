@@ -207,3 +207,50 @@ async def test_detector_survives_reload(hass, bot, sync_entry, freezer):
     hass.states.async_set(RAD, "35.0")
     await hass.async_block_till_done()
     assert c.sync.corrections_today == count
+
+
+async def test_adopted_run_not_extended_while_blind_rearms_on_heat(hass, bot, sync_entry, freezer):
+    c = await setup(hass, sync_entry)
+    t = now()
+    assert await c.sync.apply(event(True, t - 20 * M), t) == "adopted"
+    await c.submit(Request.on(now(), c.options))
+    await hass.async_block_till_done()
+    assert len(bot) == 0  # the adopted run satisfies the request for now
+    await advance(hass, freezer, 45 * M)  # past the assumed end, no readings: blind
+    assert len(bot) == 4
+
+
+async def test_adopted_run_extended_while_sensor_shows_heating(hass, bot, sync_entry, freezer):
+    c = await setup(hass, sync_entry)
+    await feed(hass, freezer, series(now(), 20.0, [(True, 60)]))
+    assert c.sync.state is True
+    t = now()
+    assert await c.sync.apply(event(True, t - 20 * M), t) == "adopted"
+    await c.submit(Request.on(now(), c.options))
+    await hass.async_block_till_done()
+    for i in range(9):  # hot readings every 10 min keep the detector seeing heating
+        freezer.tick(10 * M)
+        hass.states.async_set(RAD, "48.6" if i % 2 else "48.8")
+        await hass.async_block_till_done()
+        await advance(hass, freezer, timedelta(seconds=1))
+    assert len(bot) == 0
+    assert c.model.expires_at > now()
+
+
+async def test_nan_reading_ignored(hass, bot, sync_entry, freezer):
+    c = await setup(hass, sync_entry)
+    before = c.sync.detector.last_reading_at
+    for value in ("nan", "inf"):
+        freezer.tick(M)
+        hass.states.async_set(RAD, value)
+        await hass.async_block_till_done()
+    assert c.sync.detector.last_reading_at == before
+
+
+async def test_unchanged_reading_counts_against_blindness(hass, bot, sync_entry, freezer):
+    c = await setup(hass, sync_entry)
+    for _ in range(4):  # the same value every 20 min: reported, not changed
+        await advance(hass, freezer, 20 * M)
+        hass.states.async_set(RAD, "20.0")
+        await hass.async_block_till_done()
+    assert not c.sync.blind(now())

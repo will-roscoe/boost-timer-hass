@@ -12,13 +12,22 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 import logging
+import math
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, HomeAssistant, callback
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    Event,
+    EventStateChangedData,
+    EventStateReportedData,
+    HomeAssistant,
+    callback,
+)
 from homeassistant.helpers.event import (
     async_track_state_change_event,
+    async_track_state_report_event,
     async_track_time_interval,
 )
 from homeassistant.helpers.storage import Store
@@ -50,14 +59,15 @@ CHECK_INTERVAL = timedelta(minutes=10)
 
 
 def _number(hass: HomeAssistant, entity_id: str) -> float | None:
-    """Return the entity's state as a number, or None if missing, unavailable or not a number."""
+    """Return the entity's state as a finite number, or None if missing, unavailable or not one."""
     state = hass.states.get(entity_id)
     if state is None:
         return None
     try:
-        return float(state.state)
+        value = float(state.state)
     except ValueError:
         return None
+    return value if math.isfinite(value) else None
 
 
 def _iso(t: datetime | None) -> str | None:
@@ -118,6 +128,10 @@ class RadiatorSync:
                 self.hass, [self._radiator, *self._rooms], self._on_state_change
             )
         )
+        # An unchanged value is still a reading: the sensor reports at least hourly.
+        self._unsubs.append(
+            async_track_state_report_event(self.hass, [self._radiator], self._on_state_report)
+        )
         self._unsubs.append(async_track_time_interval(self.hass, self._on_interval, CHECK_INTERVAL))
         state = self.hass.states.get(self._radiator)
         await self.reading(state.last_updated if state else dt_util.utcnow())
@@ -137,6 +151,12 @@ class RadiatorSync:
         else:
             self.room = self._room_value()
             self._notify()
+
+    @callback
+    def _on_state_report(self, event: Event[EventStateReportedData]) -> None:
+        self.hass.async_create_task(
+            self.reading(event.data["new_state"].last_reported), f"{DOMAIN} reading"
+        )
 
     def _room_value(self) -> float | None:
         values = [v for e in self._rooms if (v := _number(self.hass, e)) is not None]
@@ -162,6 +182,7 @@ class RadiatorSync:
         if event is not None:
             await self.apply(event, now)
         await self._check_never_started(now)
+        await self._extend_adopted(now)
         self._store.async_delay_save(self.detector.to_dict, 30)
         self._notify()
 
@@ -182,8 +203,14 @@ class RadiatorSync:
     def _blind_notification_id(self) -> str:
         return f"{DOMAIN}_{self.entry.entry_id}_sync_blind"
 
+    async def _extend_adopted(self, now: datetime) -> None:
+        """Extend an adopted hand-press run while the radiator is seen heating near its end."""
+        if self.controller.model.adopted and self.state is True:
+            await self.controller.extend_adopted(now)
+
     @callback
     def _on_interval(self, now: datetime) -> None:
+        self.hass.async_create_task(self._extend_adopted(now), f"{DOMAIN} extend")
         if self.blind(now) and not self._blind_notified:
             since = self.detector.last_reading_at or self._started_at
             if now - since >= BLIND_NOTIFY_AFTER:
