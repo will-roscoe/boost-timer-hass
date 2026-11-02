@@ -176,10 +176,11 @@ class RadiatorDetector:
             predicted = off_gap(gap0, dt, c, self.n)
             if gap0 - predicted >= 2 * self.step:
                 heating = gap - predicted > self.step
-                if heating and self.state is not True:
-                    # Turning on needs the radiator to rise against the room from its lowest point
-                    # since the reference, so a cold sensor that reads a little above the room
-                    # average is not taken for heating.
+                if heating and self.state is False and not self._restored:
+                    # Turning on from a known off needs the radiator to rise against the room from
+                    # its lowest point since the reference, so a cold sensor that reads a little
+                    # above the room average is not taken for heating. With no trusted state (fresh
+                    # or just restored) a radiator far enough above the room to decide is heating.
                     low = min(b.radiator - b.room for b in self._buf[i:-1])
                     heating = gap - low >= 2 * self.step
                 break

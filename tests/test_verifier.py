@@ -118,3 +118,22 @@ def test_cold_sensor_offset_is_not_heating(offset):
         series(START, 20.0, [(True, 120), (False, 600)], offset=offset, room_wobble=0.3)
     )
     assert [(e.heating, e.initial) for e in events] == [(True, True), (False, False)]
+
+
+def test_starting_on_a_hot_radiator_is_heating():
+    """A fresh detector that first sees a radiator already at full heat (not rising) calls it on."""
+    readings = [
+        r for r in series(START, 20.0, [(True, 400)], heartbeat=20) if r.at > START + 150 * M
+    ]
+    _, events = run(readings)
+    assert [(e.heating, e.initial) for e in events] == [(True, True)]
+
+
+def test_restored_off_detector_seeing_a_hot_radiator_turns_on():
+    """After a restore, a hot steady radiator is heating even though it isn't rising."""
+    hot = [r for r in series(START, 20.0, [(True, 400)], heartbeat=20) if r.at > START + 150 * M]
+    d = RadiatorDetector()
+    d.state = False
+    restored = RadiatorDetector.from_dict(d.to_dict())
+    _, events = run(hot, restored)
+    assert [(e.heating, e.initial) for e in events] == [(True, True)]
