@@ -2,21 +2,13 @@ from datetime import timedelta
 
 from homeassistant.components.persistent_notification import _async_get_or_create_notifications
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry, async_capture_events
+from pytest_homeassistant_custom_component.common import async_capture_events
 
-from custom_components.boost_timer.const import (
-    CONF_BOT,
-    CONF_NAME,
-    CONF_PRESS_GAP,
-    CONF_RADIATOR_SENSOR,
-    CONF_ROOM_SENSORS,
-    DOMAIN,
-)
 from custom_components.boost_timer.planner import Request
 from custom_components.boost_timer.sync import RadiatorSync
 from custom_components.boost_timer.verifier import SwitchEvent
 
-from .conftest import BOT
+from .conftest import RAD, ROOM, ROOM2, feed
 from .radiator_curves import series
 from .test_controller import advance, now, restart, setup
 
@@ -115,30 +107,6 @@ async def test_corrections_option_off_applies_nothing(hass, bot, entry):
 
 
 # ---- following the sensors ----------------------------------------------------------------
-
-RAD, ROOM, ROOM2 = "sensor.radiator", "sensor.room", "sensor.room_2"
-
-
-@pytest.fixture
-def sync_entry(hass):
-    """The "Radiator" timer with radiator sync on: one radiator and two room sensors."""
-    hass.states.async_set(ROOM, "20.0")
-    hass.states.async_set(ROOM2, "20.0")
-    hass.states.async_set(RAD, "20.0")
-    e = MockConfigEntry(
-        domain=DOMAIN,
-        data={CONF_NAME: "Radiator", CONF_BOT: BOT},
-        options={CONF_PRESS_GAP: 0, CONF_RADIATOR_SENSOR: RAD, CONF_ROOM_SENSORS: [ROOM, ROOM2]},
-    )
-    e.add_to_hass(hass)
-    return e
-
-
-async def feed(hass, freezer, readings):
-    for r in readings:
-        freezer.move_to(r.at)
-        hass.states.async_set(RAD, f"{r.radiator:.2f}")
-        await hass.async_block_till_done()
 
 
 async def test_setup_without_sensor_is_v1(hass, bot, entry):

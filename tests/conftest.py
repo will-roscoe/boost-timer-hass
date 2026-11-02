@@ -1,9 +1,16 @@
-"""Shared fixtures: a mock SwitchBot switch and a config entry pointing at it."""
+"""Shared fixtures: a mock SwitchBot, a config entry pointing at it, and one with radiator sync."""
 
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_mock_service
 
-from custom_components.boost_timer.const import CONF_BOT, CONF_NAME, CONF_PRESS_GAP, DOMAIN
+from custom_components.boost_timer.const import (
+    CONF_BOT,
+    CONF_NAME,
+    CONF_PRESS_GAP,
+    CONF_RADIATOR_SENSOR,
+    CONF_ROOM_SENSORS,
+    DOMAIN,
+)
 
 BOT = "button.bot_5616"
 #: The Bot as a switch (its real form); only used by tests that do not load the integration.
@@ -37,3 +44,28 @@ def entry(hass):
     )
     e.add_to_hass(hass)
     return e
+
+
+RAD, ROOM, ROOM2 = "sensor.radiator", "sensor.room", "sensor.room_2"
+
+
+@pytest.fixture
+def sync_entry(hass):
+    """The "Radiator" timer with radiator sync on: one radiator and two room sensors."""
+    hass.states.async_set(ROOM, "20.0")
+    hass.states.async_set(ROOM2, "20.0")
+    hass.states.async_set(RAD, "20.0")
+    e = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_NAME: "Radiator", CONF_BOT: BOT},
+        options={CONF_PRESS_GAP: 0, CONF_RADIATOR_SENSOR: RAD, CONF_ROOM_SENSORS: [ROOM, ROOM2]},
+    )
+    e.add_to_hass(hass)
+    return e
+
+
+async def feed(hass, freezer, readings):
+    for r in readings:
+        freezer.move_to(r.at)
+        hass.states.async_set(RAD, f"{r.radiator:.2f}")
+        await hass.async_block_till_done()

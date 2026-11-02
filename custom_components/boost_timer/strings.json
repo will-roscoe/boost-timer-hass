@@ -31,13 +31,17 @@
           "press_service": "How to press a switch Bot",
           "step": "Minutes per step (LED)",
           "steps": "Number of steps (LEDs)",
-          "sync_corrections": "Correct the timer from the radiator sensor"
+          "sync_corrections": "Correct the timer from the radiator sensor",
+          "radiator_sensor": "Radiator temperature sensor",
+          "room_sensors": "Room temperature sensors"
         }
       }
     },
     "error": {
       "on_setting_above_steps": "\"On\" can't arm above the number of steps.",
-      "press_gap_too_long": "The gap must be shorter than the selection window minus the safety margin."
+      "press_gap_too_long": "The gap must be shorter than the selection window minus the safety margin.",
+      "room_sensor_required": "Radiator sync needs at least one room temperature sensor to compare with.",
+      "radiator_in_room_sensors": "The radiator sensor can't also be a room sensor."
     }
   },
   "selector": {
@@ -66,11 +70,17 @@
       },
       "heating_until": {
         "name": "Heating until"
+      },
+      "sync_corrections": {
+        "name": "Sync corrections"
       }
     },
     "binary_sensor": {
       "heating": {
         "name": "Heating"
+      },
+      "verified_heating": {
+        "name": "Verified heating"
       },
       "uncertain": {
         "name": "Uncertain"
