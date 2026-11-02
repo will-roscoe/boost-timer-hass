@@ -78,25 +78,25 @@ def test_heat_shorter_than_tolerance_from_off_is_done():
 
 
 def test_on_1h_set_3h_one_burst():
-    assert next_action(on_at(1), Request.set(3, T0), T0, OPTS) == Burst(4)
+    assert next_action(on_at(1), Request.set(3, T0), T0, OPTS) == Burst(4, target=3)
 
 
 def test_on_4h_set_1h():
-    assert next_action(on_at(4), Request.set(1, T0), T0, OPTS) == Burst(2)
+    assert next_action(on_at(4), Request.set(1, T0), T0, OPTS) == Burst(2, target=1)
 
 
 def test_set_off_from_on_and_set_current_is_done():
-    assert next_action(on_at(2), Request.set(0, T0), T0, OPTS) == Burst(1)
+    assert next_action(on_at(2), Request.set(0, T0), T0, OPTS) == Burst(1, target=0)
     assert next_action(on_at(2), Request.set(2, T0), T0, OPTS) == Done()
 
 
 def test_set_from_off():
     for n in range(1, 5):
-        assert next_action(TimerModel(), Request.set(n, T0), T0, OPTS) == Burst(n)
+        assert next_action(TimerModel(), Request.set(n, T0), T0, OPTS) == Burst(n, target=n)
 
 
 def test_off_request():
-    assert next_action(on_at(3), Request.off(T0), T0, OPTS) == Burst(1)
+    assert next_action(on_at(3), Request.off(T0), T0, OPTS) == Burst(1, target=0)
     assert next_action(TimerModel(), Request.off(T0), T0, OPTS) == Done()
     assert next_action(TimerModel(), None, T0, OPTS) == Done()
 

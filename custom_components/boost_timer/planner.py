@@ -103,9 +103,15 @@ class Request:
 
 @dataclass(frozen=True)
 class Burst:
-    """Press ``presses`` times quickly; the first press comes after a gap."""
+    """Press quickly until the timer shows ``target``; the first press comes after a gap.
+
+    :ivar presses: how many presses that takes if the first one lands straight away.
+    :ivar target: the setting to end on. A first press that lands late can change the count, so
+        the executor counts towards this rather than ``presses``.
+    """
 
     presses: int
+    target: int
 
 
 @dataclass(frozen=True)
@@ -123,9 +129,9 @@ class Done:
 type Action = Burst | Wait | Done
 
 
-def _burst(n: int, model: TimerModel, now: datetime, opts: Options) -> Burst | Wait:
+def _burst(n: int, target: int, model: TimerModel, now: datetime, opts: Options) -> Burst | Wait:
     if model.is_idle(now, opts):
-        return Burst(n)
+        return Burst(n, target)
     idle_at = model.idle_at(opts)
     assert idle_at is not None  # not idle implies a last press
     return Wait(idle_at)
@@ -144,36 +150,36 @@ def next_action(model: TimerModel, request: Request | None, now: datetime, opts:
     tol = opts.end_tolerance
 
     if request.kind is Kind.OFF:
-        return _burst(1, model, now, opts) if s > 0 else Done()
+        return _burst(1, 0, model, now, opts) if s > 0 else Done()
 
     if request.kind is Kind.SET:
         n = request.setting or 0
         if s == n:
             return Done()
         if s == 0:
-            return _burst(n, model, now, opts)
-        return _burst(1 + n, model, now, opts)
+            return _burst(n, n, model, now, opts)
+        return _burst(1 + n, n, model, now, opts)
 
     until = request.until
     if until is not None and now >= until:
         if s > 0 and e is not None and e > until + tol:
-            return _burst(1, model, now, opts)
+            return _burst(1, 0, model, now, opts)
         return Done()
 
     if s == 0:
         if until is None:
-            return _burst(opts.on_setting, model, now, opts)
+            return _burst(opts.on_setting, opts.on_setting, model, now, opts)
         left = until - now - tol
         if left <= timedelta(0):
             return Done()
         n = max(1, min(opts.steps, math.ceil(left / opts.step)))
-        return _burst(n, model, now, opts)
+        return _burst(n, n, model, now, opts)
 
     assert e is not None  # s > 0 implies an expiry
     if until is None:
         if opts.rearm_early:
             if e - now <= opts.rearm_lead:
-                return _burst(1 + opts.on_setting, model, now, opts)
+                return _burst(1 + opts.on_setting, opts.on_setting, model, now, opts)
             return Wait(e - opts.rearm_lead)
         return Wait(e)
 

@@ -11,8 +11,10 @@ import asyncio
 from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 
-#: Seconds before a press call that has not returned counts as failed.
-PRESS_TIMEOUT = 30
+#: Seconds before a press call that has not returned counts as failed. Only a guard against a call
+#: that never returns: the SwitchBot library retries a failing connection itself and raises when it
+#: gives up, and a first press after the Bot's 8.5 s link timeout has taken over 2 minutes.
+PRESS_TIMEOUT = 300
 
 
 class PressFailed(Exception):

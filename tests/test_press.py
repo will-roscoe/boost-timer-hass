@@ -2,7 +2,12 @@ from homeassistant.exceptions import HomeAssistantError
 import pytest
 from pytest_homeassistant_custom_component.common import async_mock_service
 
-from custom_components.boost_timer.press import BotUnavailable, PressAdapter, PressFailed
+from custom_components.boost_timer.press import (
+    PRESS_TIMEOUT,
+    BotUnavailable,
+    PressAdapter,
+    PressFailed,
+)
 
 from .conftest import SWITCH_BOT as BOT
 
@@ -92,3 +97,8 @@ async def test_unexpected_exception_raises_press_failed(hass):
     hass.services.async_register("switch", "turn_on", fail)
     with pytest.raises(PressFailed):
         await PressAdapter(hass, BOT, "turn_on").press()
+
+
+def test_timeout_outlasts_the_slowest_seen_reconnect():
+    """The Bot's library retries a dropped connection itself; 80 s and over 2 min were measured."""
+    assert PRESS_TIMEOUT >= 180

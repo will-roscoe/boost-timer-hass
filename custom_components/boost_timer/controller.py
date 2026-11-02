@@ -65,6 +65,7 @@ class BoostTimerController:
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}"
         )
         self._lock = asyncio.Lock()
+        self._press_task: asyncio.Task[None] | None = None
         self._listeners: list[Callable[[], None]] = []
         self._unsub_wake: CALLBACK_TYPE | None = None
         self._unsub_started: CALLBACK_TYPE | None = None
@@ -128,12 +129,14 @@ class BoostTimerController:
         self._kick()
 
     async def async_stop(self) -> None:
-        """Stop scheduling; an in-progress run finishes its current burst."""
+        """Stop scheduling and abandon a press still in progress, marking the model uncertain."""
         self._stopped = True
         self._cancel_wake()
         if self._unsub_started:
             self._unsub_started()
             self._unsub_started = None
+        if self._press_task is not None:
+            self._press_task.cancel()
         async with self._lock:
             pass
 
@@ -222,9 +225,11 @@ class BoostTimerController:
                     self._retry_at = None
                 action = next_action(self.model, self.request, now, self.options)
                 if isinstance(action, Burst):
-                    if not await self._burst(action.presses):
+                    if not await self._burst(action):
+                        if self._stopped:
+                            return
                         await self._after_failure()
-                    elif self._burst_missed_target():
+                    elif self._burst_missed_target(action):
                         await self._abandon_unreachable(action.presses)
                     continue
                 if isinstance(action, Done) and self._request_finishes_when_done(now):
@@ -252,8 +257,14 @@ class BoostTimerController:
             self.request = None
             await self._save()
 
-    def _burst_missed_target(self) -> bool:
-        """True if, once the window closes, the planner would burst again: a loop."""
+    def _burst_missed_target(self, burst: Burst) -> bool:
+        """True if, once the window closes, the planner would burst again: a loop.
+
+        A burst ending on off is exempt: it is one press, which turns a timer that ran out while the
+        press was connecting back on, and one more press after the gap stops it.
+        """
+        if burst.target == 0:
+            return False
         idle_at = self.model.idle_at(self.options)
         if idle_at is None:
             return False
@@ -267,24 +278,37 @@ class BoostTimerController:
         self.request = None
         await self._save()
 
-    async def _burst(self, presses: int) -> bool:
-        """Press ``presses`` times back to back. Returns False if the burst failed.
+    async def _burst(self, burst: Burst) -> bool:
+        """Press until the model shows ``burst.target``. Returns False if the burst failed.
 
-        An unavailable Bot before the first press changes nothing. Any other failure, or a press
-        after the first that took so long the selection window may have closed, marks the model
-        uncertain.
+        Counts from the model after every press, because a first press can take minutes to land
+        and the timer may have changed by then. A burst to off is always one press. At most
+        ``steps + 1`` presses, the most any setting can need.
+
+        An unavailable Bot before the first press changes nothing. Any other failure, a press
+        after the first that took so long the selection window may have closed, or being stopped
+        mid-press marks the model uncertain.
         """
         window = self.options.selection_window - self.options.burst_margin
-        for i in range(presses):
+        for i in range(self.options.steps + 1):
             started = dt_util.utcnow()
+            self._press_task = asyncio.ensure_future(self._press.press())
             try:
-                await self._press.press()
+                await self._press_task
             except PressFailed as err:
                 if not (i == 0 and isinstance(err, BotUnavailable)):
                     self.model.observe(UnknownObs(), dt_util.utcnow(), self.options, "executor")
                     await self._save()
                 self._press_failed(i + 1, str(err))
                 return False
+            except asyncio.CancelledError:
+                if not self._stopped:
+                    raise
+                self.model.observe(UnknownObs(), dt_util.utcnow(), self.options, "executor")
+                await self._save()
+                return False
+            finally:
+                self._press_task = None
             now = dt_util.utcnow()
             self.model.apply_press(now, self.options)
             self._count_press(now)
@@ -297,6 +321,8 @@ class BoostTimerController:
             if slow:
                 self._press_failed(i + 1, f"press took {(now - started).total_seconds():.1f} s")
                 return False
+            if burst.target == 0 or self.model.setting(now, self.options) == burst.target:
+                break
         self._press_succeeded()
         return True
 

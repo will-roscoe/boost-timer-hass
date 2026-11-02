@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import replace
 from datetime import timedelta
 
@@ -220,3 +221,54 @@ async def test_startup_waits_for_home_assistant_started(hass, bot, entry, freeze
     hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
     await hass.async_block_till_done()
     assert len(bot) == 8
+
+
+def slow_first_press(hass, freezer, delay):
+    """A Bot whose first press takes ``delay`` to land, as when its connection has to be rebuilt."""
+    return scripted_bot(hass, on_call=lambda n: freezer.tick(delay) if n == 1 else None)
+
+
+async def test_timer_expiring_during_slow_first_press_recounts_burst(hass, entry, freezer):
+    """Planned as on → off → 1 → 2 → 3, but the first press lands on a timer already off."""
+    calls = slow_first_press(hass, freezer, timedelta(seconds=90))
+    c = await setup(hass, entry)
+    c.model.expires_at = now() + timedelta(seconds=30)
+    await c.submit(Request.set(3, now()))
+    await hass.async_block_till_done()
+    assert len(calls) == 3
+    assert c.model.setting(now(), c.options) == 3
+    assert c.model.uncertain is False
+
+
+async def test_off_landing_after_expiry_presses_off_again_after_the_gap(hass, entry, freezer):
+    """The late press turned a finished timer back on, so one more press after the gap stops it."""
+    calls = slow_first_press(hass, freezer, timedelta(seconds=90))
+    c = await setup(hass, entry)
+    c.model.expires_at = now() + timedelta(seconds=30)
+    await c.submit(Request.off(now()))
+    await hass.async_block_till_done()
+    assert len(calls) == 1
+    assert c.model.setting(now(), c.options) == 1
+    assert c.request is not None
+
+    await advance(hass, freezer, timedelta(seconds=7))
+    assert len(calls) == 2
+    assert c.model.setting(now(), c.options) == 0
+    assert c.request is None
+
+
+async def test_stop_does_not_wait_for_a_press_stuck_connecting(hass, entry):
+    hass.states.async_set(BOT, "unknown")
+    release = asyncio.Event()
+
+    async def stuck(call):
+        await release.wait()
+
+    hass.services.async_register("button", "press", stuck)
+    c = await setup(hass, entry)
+    await c.submit(Request.set(1, now()))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    async with asyncio.timeout(2):
+        await c.async_stop()
+    assert c.model.uncertain is True
