@@ -74,6 +74,7 @@ class SyncCorrectionsSensor(BoostTimerEntity, SensorEntity):
         sync = self.controller.sync
         return {
             "last_correction": sync.last_correction,
+            "corrections_total": sync.corrections_total,
             "frozen": sync.frozen,
             "blind": sync.blind(dt_util.utcnow()),
         }

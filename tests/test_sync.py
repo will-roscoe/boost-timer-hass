@@ -277,3 +277,66 @@ async def test_never_started_waits_for_a_decision_after_reload(hass, bot, sync_e
     await hass.async_block_till_done()
     assert c.sync.last_correction is None
     assert len(bot) == 4
+
+
+# ---- deferred minors -------------------------------------------------------------------------
+
+
+async def test_counts_and_markers_survive_reload(hass, bot, sync_entry, freezer):
+    c = await setup(hass, sync_entry)
+    t = now()
+    for _ in range(3):
+        start = now() - 20 * M
+        await c.sync.apply(event(True, start), now())
+        await c.sync.apply(event(False, start + 10 * M), now())
+        await advance(hass, freezer, 60 * M)
+    assert c.sync.frozen
+    c = await restart(hass, sync_entry)
+    assert c.sync.corrections_today == 6
+    assert c.sync.corrections_total == 6
+    assert c.sync.frozen
+    assert c.sync.last_correction["kind"] == "ended_early"
+    assert t  # same day
+
+
+async def test_no_readings_after_stop(hass, bot, sync_entry, freezer):
+    c = await setup(hass, sync_entry)
+    s = c.sync
+    before = s.detector.last_reading_at
+    await s.async_stop()
+    freezer.tick(M)
+    await s.reading(now())
+    assert s.detector.last_reading_at == before
+
+
+async def test_applies_while_controller_is_only_planning(hass, bot, sync_entry):
+    c = await setup(hass, sync_entry)
+    async with c._lock:  # a planning pass holds the lock without pressing
+        kind = await c.sync.apply(event(True, now() - 20 * M), now())
+    assert kind == "adopted"
+
+
+async def test_never_started_once_until_heating_seen(hass, bot, sync_entry, freezer):
+    """With the radiator unpowered, one never-started re-arm, then behave as without a sensor."""
+    c = await setup(hass, sync_entry)
+    t = now()
+    await c.submit(Request.on(t, c.options))
+    await hass.async_block_till_done()
+    for i in range(1, 19):  # 3 hours of near-room readings every 10 min
+        await advance(hass, freezer, 10 * M)
+        hass.states.async_set(RAD, "20.2" if i % 2 else "20.0")
+        await hass.async_block_till_done()
+    assert c.sync.corrections_today == 1
+    assert len(bot) == 8
+
+
+async def test_loads_detector_saved_in_the_first_format(hass, bot, sync_entry, hass_storage):
+    hass_storage[f"boost_timer.{sync_entry.entry_id}.detector"] = {
+        "version": 1,
+        "key": f"boost_timer.{sync_entry.entry_id}.detector",
+        "data": {"state": True, "n": 1.0, "stretches": [0.04], "pairs": []},
+    }
+    c = await setup(hass, sync_entry)
+    assert c.sync.detector.state is True
+    assert c.sync.detector.to_dict()["stretches"] == []  # bare rates are relearned
+    assert c.sync.corrections_total == 0

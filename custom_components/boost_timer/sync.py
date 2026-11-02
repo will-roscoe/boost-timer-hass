@@ -9,7 +9,8 @@ when the ``sync_corrections`` option is off, and at most :data:`~.const.CORRECTI
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+from collections.abc import Callable, Coroutine
 from datetime import date, datetime, timedelta
 import logging
 import math
@@ -74,6 +75,14 @@ def _iso(t: datetime | None) -> str | None:
     return t.isoformat() if t else None
 
 
+def _dt(s: str | None) -> datetime | None:
+    return datetime.fromisoformat(s) if s else None
+
+
+def _date(s: str | None) -> date | None:
+    return date.fromisoformat(s) if s else None
+
+
 def _local_date(t: datetime) -> date:
     return dt_util.as_local(t).date()
 
@@ -101,6 +110,7 @@ class RadiatorSync:
         self.last_correction: dict[str, Any] | None = None
         self._corrections = 0
         self._corrections_date: date | None = None
+        self.corrections_total = 0
         self._frozen_date: date | None = None
         self._listeners: list[Callable[[], None]] = []
         self._radiator: str = entry.options.get(CONF_RADIATOR_SENSOR, "")
@@ -114,6 +124,11 @@ class RadiatorSync:
         self._blind_notified = False
         self._never_started_for: datetime | None = None
         self._heating_seen_at: datetime | None = None  # last reading the detector called heating
+        # A never-started correction re-arms once; until heating is seen again (the radiator may be
+        # unpowered) runs are left to end as they would without a sensor.
+        self._never_started_spent = False
+        self._stopped = False
+        self._tasks: set[asyncio.Task[Any]] = set()
 
     # ---- sensors ----------------------------------------------------------------------------
 
@@ -121,7 +136,7 @@ class RadiatorSync:
         """Restore the learned detector, follow the sensors, and take a first reading."""
         data = await self._store.async_load()
         if data:
-            self.detector = RadiatorDetector.from_dict(data)
+            self._restore(data)
         self._started_at = dt_util.utcnow()
         self._unsubs.append(
             async_track_state_change_event(
@@ -137,26 +152,66 @@ class RadiatorSync:
         await self.reading(state.last_updated if state else dt_util.utcnow())
 
     async def async_stop(self) -> None:
-        """Stop following the sensors and save what the detector has learned."""
+        """Stop following the sensors, cancel queued readings, and save what has been learned."""
+        self._stopped = True
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
-        await self._store.async_save(self.detector.to_dict())
+        for task in list(self._tasks):
+            task.cancel()
+        await self._store.async_save(self._data())
+
+    def _data(self) -> dict[str, Any]:
+        """Return everything saved across restarts: the detector and the loop guards."""
+        return {
+            "detector": self.detector.to_dict(),
+            "corrections": self._corrections,
+            "corrections_date": self._corrections_date.isoformat()
+            if self._corrections_date
+            else None,
+            "corrections_total": self.corrections_total,
+            "frozen_date": self._frozen_date.isoformat() if self._frozen_date else None,
+            "last_correction": self.last_correction,
+            "never_started_for": _iso(self._never_started_for),
+            "heating_seen_at": _iso(self._heating_seen_at),
+            "never_started_spent": self._never_started_spent,
+        }
+
+    def _restore(self, data: dict[str, Any]) -> None:
+        if "detector" not in data:  # saved before the loop guards were kept
+            self.detector = RadiatorDetector.from_dict(data)
+            return
+        self.detector = RadiatorDetector.from_dict(data["detector"])
+        self._corrections = int(data.get("corrections", 0))
+        self._corrections_date = _date(data.get("corrections_date"))
+        self.corrections_total = int(data.get("corrections_total", 0))
+        self._frozen_date = _date(data.get("frozen_date"))
+        self.last_correction = data.get("last_correction")
+        self._never_started_for = _dt(data.get("never_started_for"))
+        self._heating_seen_at = _dt(data.get("heating_seen_at"))
+        self._never_started_spent = bool(data.get("never_started_spent", False))
+
+    def _spawn(self, coro: Coroutine[Any, Any, None], name: str) -> None:
+        """Run ``coro`` as a task that :meth:`async_stop` cancels."""
+        if self._stopped:
+            coro.close()
+            return
+        task = self.hass.async_create_task(coro, f"{DOMAIN} {name}")
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     @callback
     def _on_state_change(self, event: Event[EventStateChangedData]) -> None:
         new = event.data["new_state"]
         if event.data["entity_id"] == self._radiator and new is not None:
-            self.hass.async_create_task(self.reading(new.last_updated), f"{DOMAIN} reading")
+            self._spawn(self.reading(new.last_updated), "reading")
         else:
             self.room = self._room_value()
             self._notify()
 
     @callback
     def _on_state_report(self, event: Event[EventStateReportedData]) -> None:
-        self.hass.async_create_task(
-            self.reading(event.data["new_state"].last_reported), f"{DOMAIN} reading"
-        )
+        self._spawn(self.reading(event.data["new_state"].last_reported), "reading")
 
     def _room_value(self) -> float | None:
         values = [v for e in self._rooms if (v := _number(self.hass, e)) is not None]
@@ -166,7 +221,10 @@ class RadiatorSync:
         """Read the sensors' current states as a reading taken at ``at`` and act on it.
 
         A radiator or room value that is missing, unavailable or not a number is no reading.
+        Nothing happens once stopped.
         """
+        if self._stopped:
+            return
         self.room = self._room_value()
         radiator = _number(self.hass, self._radiator)
         if radiator is None or self.room is None:
@@ -176,14 +234,15 @@ class RadiatorSync:
             self._blind_notified = False
             persistent_notification.async_dismiss(self.hass, self._blind_notification_id)
         event = self.detector.update(Reading(at, radiator, self.room))
-        if self.detector.state is True:
+        if self.detector.state is True and self.detector.decided:
             self._heating_seen_at = at
+            self._never_started_spent = False
         now = dt_util.utcnow()
         if event is not None:
             await self.apply(event, now)
         await self._check_never_started(now)
         await self._extend_adopted(now)
-        self._store.async_delay_save(self.detector.to_dict, 30)
+        self._store.async_delay_save(self._data, 30)
         self._notify()
 
     def blind(self, now: datetime) -> bool:
@@ -205,12 +264,12 @@ class RadiatorSync:
 
     async def _extend_adopted(self, now: datetime) -> None:
         """Extend an adopted hand-press run while the radiator is seen heating near its end."""
-        if self.controller.model.adopted and self.state is True:
+        if not self._stopped and self.controller.model.adopted and self.state is True:
             await self.controller.extend_adopted(now)
 
     @callback
     def _on_interval(self, now: datetime) -> None:
-        self.hass.async_create_task(self._extend_adopted(now), f"{DOMAIN} extend")
+        self._spawn(self._extend_adopted(now), "extend")
         if self.blind(now) and not self._blind_notified:
             since = self.detector.last_reading_at or self._started_at
             if now - since >= BLIND_NOTIFY_AFTER:
@@ -233,6 +292,8 @@ class RadiatorSync:
         rs = model.run_started_at
         if rs is None or rs == self._never_started_for or model.adopted or self.blind(now):
             return
+        if self._never_started_spent:
+            return
         if self._heating_seen_at is not None and self._heating_seen_at >= rs:
             return
         if model.setting(now, self.controller.options) == 0:
@@ -242,7 +303,8 @@ class RadiatorSync:
         if now < deadline or last is None or last < deadline or not self.detector.cold():
             return
         self._never_started_for = rs
-        await self.apply(SwitchEvent(False, rs, rs, rs, now, False), now)
+        if await self.apply(SwitchEvent(False, rs, rs, rs, now, False), now) == "never_started":
+            self._never_started_spent = True
 
     @property
     def corrections_today(self) -> int:
@@ -310,6 +372,7 @@ class RadiatorSync:
         if self._corrections_date != today:
             self._corrections, self._corrections_date = 0, today
         self._corrections += 1
+        self.corrections_total += 1
         self.last_correction = {
             "kind": kind,
             "at": _iso(event.at),

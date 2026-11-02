@@ -51,7 +51,7 @@ class UncertainBinarySensor(BoostTimerEntity, BinarySensorEntity):
 
 
 class VerifiedHeatingBinarySensor(BoostTimerEntity, BinarySensorEntity):
-    """Whether the radiator sensor shows heating; unavailable while blind or undecided."""
+    """Whether the radiator sensor shows heating; unknown while blind or undecided."""
 
     _attr_device_class = BinarySensorDeviceClass.HEAT
 
@@ -59,10 +59,6 @@ class VerifiedHeatingBinarySensor(BoostTimerEntity, BinarySensorEntity):
         """Also rewrite the state whenever radiator sync changes anything."""
         await super().async_added_to_hass()
         self.async_on_remove(self.controller.sync.add_listener(self.async_write_ha_state))
-
-    @property
-    def available(self) -> bool:
-        return self.controller.sync.state is not None
 
     @property
     def is_on(self) -> bool | None:

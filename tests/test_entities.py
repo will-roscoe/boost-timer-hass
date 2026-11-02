@@ -134,11 +134,11 @@ async def test_sync_entities_created_with_sensor(hass, bot, sync_entry):
     assert reg.async_get("sensor.radiator_sync_corrections").entity_category == "diagnostic"
 
 
-async def test_verified_heating_unavailable_while_undecided_then_follows_detector(
+async def test_verified_heating_unknown_while_undecided_then_follows_detector(
     hass, bot, sync_entry, freezer
 ):
     await setup(hass, sync_entry)
-    assert state(hass, "binary_sensor.radiator_verified_heating") == "unavailable"
+    assert state(hass, "binary_sensor.radiator_verified_heating") == "unknown"
     await feed(hass, freezer, series(now(), 20.0, [(True, 60)]))
     assert state(hass, "binary_sensor.radiator_verified_heating") == "on"
 
@@ -152,3 +152,4 @@ async def test_corrections_sensor_counts_and_shows_last(hass, bot, sync_entry):
     assert s.state == "1"
     assert s.attributes["last_correction"]["kind"] == "adopted"
     assert s.attributes["frozen"] is False
+    assert s.attributes["corrections_total"] == 1

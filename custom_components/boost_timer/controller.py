@@ -66,6 +66,7 @@ class BoostTimerController:
         )
         self._lock = asyncio.Lock()
         self._press_task: asyncio.Task[None] | None = None
+        self._pressing = False
         self._next_backoff = self.options.retry_backoff
         self._listeners: list[Callable[[], None]] = []
         self._unsub_wake: CALLBACK_TYPE | None = None
@@ -182,9 +183,10 @@ class BoostTimerController:
         return True
 
     def busy(self, now: datetime) -> bool:
-        """Return True while a burst is running or within ``SUPPRESS_AFTER_PRESS`` of a press."""
+        """Return True while a burst is being pressed or within ``SUPPRESS_AFTER_PRESS`` of a
+        press (a planning pass that presses nothing doesn't count)."""
         last = self.model.last_press_at
-        return self._lock.locked() or (last is not None and now - last < SUPPRESS_AFTER_PRESS)
+        return self._pressing or (last is not None and now - last < SUPPRESS_AFTER_PRESS)
 
     def add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:
         """Call ``cb`` after every change; returns a function that removes it."""
@@ -313,6 +315,13 @@ class BoostTimerController:
         after the first that took so long the selection window may have closed, or being stopped
         mid-press marks the model uncertain.
         """
+        self._pressing = True
+        try:
+            return await self._press_burst(burst)
+        finally:
+            self._pressing = False
+
+    async def _press_burst(self, burst: Burst) -> bool:
         window = self.options.selection_window - self.options.burst_margin
         last_landed = None
         for i in range(self.options.steps + 1):

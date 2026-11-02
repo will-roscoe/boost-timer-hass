@@ -24,10 +24,10 @@ def q(x):
     return round(x / SENSOR_STEP) * SENSOR_STEP
 
 
-def replay(scale=1.0, room_shift=0.0):
+def replay(scale=1.0, room_shift=0.0, detector=None):
     data = json.loads(FIXTURE.read_text())
     room = [(datetime.fromisoformat(a), v) for a, v in data["room"]]
-    d = RadiatorDetector()
+    d = detector or RadiatorDetector()
     events, last = [], None
     for at, value in ((datetime.fromisoformat(a), v) for a, v in data["radiator"]):
         r = next((v for ra, v in reversed(room) if ra <= at), room[0][1])
@@ -73,3 +73,16 @@ def test_replay_robust_to_lower_power_and_room_shift(scale, room_shift):
     assert [e.heating for e in other] == [e.heating for e in base]
     for a, b in zip(base, other, strict=True):
         assert minutes(a.detected_at, b.detected_at) <= 15
+
+
+def test_replay_back_dates_offs_along_the_learned_curve():
+    """With cooling learned from the recording, both offs are back-dated along the curve."""
+    learned = RadiatorDetector()
+    replay(detector=learned)
+    events = replay(detector=RadiatorDetector.from_dict(learned.to_dict()))
+    offs = [e for e in events if not e.heating and not e.initial]
+    assert len(offs) == 2
+    for e, truth in zip(offs, ["05:09", "10:37"], strict=True):
+        assert minutes(e.at, t(truth)) <= 5
+    # The curve placed at least one inside its window (the other was clamped to the window start).
+    assert any(e.lo < e.at < e.hi for e in offs)

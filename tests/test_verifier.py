@@ -161,3 +161,14 @@ def test_cold_needs_a_decided_off_or_half_an_hour_undecided():
     assert not one.cold()  # a single reading proves nothing
     off, _ = run(series(START, 20.0, [(True, 120), (False, 60)]))
     assert off.cold()
+
+
+def test_refit_keeps_stretch_evidence():
+    """A new exponent recomputes every stretch's rate from its evidence, keeping the slowest."""
+    d, _ = run(series(START, 20.0, [(True, 60), (False, 120)] * 3, c=0.04, n=1.0))
+    kept = len(d.to_dict()["stretches"])
+    assert kept == 3
+    d._pairs = [(g, 0.004 * g**1.6) for g in range(4, 31)]
+    d._refit()
+    assert d.n == pytest.approx(1.6, abs=0.05)
+    assert len(d.to_dict()["stretches"]) == kept

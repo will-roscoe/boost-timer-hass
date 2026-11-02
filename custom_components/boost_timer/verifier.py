@@ -133,7 +133,9 @@ class RadiatorDetector:
         self.c_prior = c_prior
         self.state: bool | None = None
         self.n = 1.0
-        self._stretches: list[float] = []  # latest c estimate per cooling stretch, newest last
+        # Per cooling stretch (newest last), the latest clear fall seen: (gap before, gap after,
+        # minutes). Rates are recomputed from it for the current n, so a new n keeps the evidence.
+        self._stretches: list[tuple[float, float, float]] = []
         self._new_stretch = False
         self._since: datetime | None = None  # when the current state was detected
         self._restored = False  # restored from storage, no decision made since
@@ -165,7 +167,10 @@ class RadiatorDetector:
 
     @property
     def _c_decide(self) -> float:
-        return min(self._stretches) if self._stretches else self.c_prior
+        return min(self._c(ev) for ev in self._stretches) if self._stretches else self.c_prior
+
+    def _c(self, evidence: tuple[float, float, float]) -> float:
+        return _c_from(*evidence, self.n)
 
     def update(self, reading: Reading) -> SwitchEvent | None:
         """Add a reading; return a :class:`SwitchEvent` if it shows heating started or stopped.
@@ -237,7 +242,7 @@ class RadiatorDetector:
         at = lo
         g_hi = r.radiator - r.room
         if not heating and self._stretches and turn > g_hi > 0:
-            back = cooling_minutes(turn, g_hi, self._stretches[-1], self.n)
+            back = cooling_minutes(turn, g_hi, self._c(self._stretches[-1]), self.n)
             at = min(max(hi - timedelta(minutes=back), lo), hi)
         return SwitchEvent(heating, at, lo, hi, r.at, initial)
 
@@ -251,13 +256,13 @@ class RadiatorDetector:
                 return
             if ref.radiator - r.radiator >= 5 * self.step:
                 gap0 = ref.radiator - r.room
-                c = _c_from(gap0, gap1, dt, self.n)
-                if c > 0:
+                evidence = (gap0, gap1, dt)
+                if gap0 > gap1 > 0:
                     if self._new_stretch or not self._stretches:
-                        self._stretches = [*self._stretches, c][-STRETCHES_KEPT:]
+                        self._stretches = [*self._stretches, evidence][-STRETCHES_KEPT:]
                         self._new_stretch = False
                     else:
-                        self._stretches[-1] = c
+                        self._stretches[-1] = evidence
                 self._pairs.append((math.sqrt(gap0 * gap1), (gap0 - gap1) / dt))
                 self._pairs = self._pairs[-PAIRS_KEPT:]
                 self._refit()
@@ -265,17 +270,15 @@ class RadiatorDetector:
 
     def _refit(self) -> None:
         fit = fit_exponent(self._pairs)
-        if fit is None or abs(fit[1] - self.n) < 0.05:
-            return
-        self.n = fit[1]
-        self._stretches = [fit[0]]
+        if fit is not None:
+            self.n = fit[1]
 
     def to_dict(self) -> dict[str, Any]:
         """Return the learned cooling and current state for storage (not the reading buffer)."""
         return {
             "state": self.state,
             "n": self.n,
-            "stretches": list(self._stretches),
+            "stretches": [list(ev) for ev in self._stretches],
             "pairs": [list(p) for p in self._pairs],
         }
 
@@ -288,7 +291,13 @@ class RadiatorDetector:
         det = cls()
         det.state = d.get("state")
         det.n = float(d.get("n", 1.0))
-        det._stretches = [float(c) for c in d.get("stretches", [])]
+        # Older saves held bare rates, which can't be recomputed for a new n: relearn those.
+        det._stretches = [
+            (float(a), float(b), float(m))
+            for ev in d.get("stretches", [])
+            if isinstance(ev, list) and len(ev) == 3
+            for a, b, m in [ev]
+        ]
         det._pairs = [(float(g), float(r)) for g, r in d.get("pairs", [])]
         det._restored = True
         return det
