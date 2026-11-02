@@ -56,7 +56,8 @@ class SwitchEvent:
     :ivar at: best estimate of the switch, within ``[lo, hi]``.
     :ivar lo: the last reading before the switch was seen.
     :ivar hi: the reading that showed it (also ``detected_at``).
-    :ivar initial: the detector had no state before: this sets it, it is not a switch.
+    :ivar initial: the detector had no state before, or was just restored from storage: this sets
+        its state and is not a switch.
     """
 
     heating: bool
@@ -132,6 +133,7 @@ class RadiatorDetector:
         self._stretches: list[float] = []  # latest c estimate per cooling stretch, newest last
         self._new_stretch = False
         self._since: datetime | None = None  # when the current state was detected
+        self._restored = False  # restored from storage, no decision made since
         self._pairs: list[tuple[float, float]] = []
         self._buf: list[Reading] = []
         self._last_at: datetime | None = None
@@ -176,9 +178,10 @@ class RadiatorDetector:
                 break
         else:
             return None
+        restored, self._restored = self._restored, False
         if heating == self.state:
             return None
-        initial = self.state is None
+        initial = self.state is None or restored
         event = self._event(heating, initial, r)
         self.state = heating
         self._since = r.at
@@ -250,10 +253,14 @@ class RadiatorDetector:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> RadiatorDetector:
-        """Rebuild a detector saved by :meth:`to_dict`, with an empty reading buffer."""
+        """Rebuild a detector saved by :meth:`to_dict`, with an empty reading buffer.
+
+        Its first event is marked ``initial``: it has nothing from before the restore to compare.
+        """
         det = cls()
         det.state = d.get("state")
         det.n = float(d.get("n", 1.0))
         det._stretches = [float(c) for c in d.get("stretches", [])]
         det._pairs = [(float(g), float(r)) for g, r in d.get("pairs", [])]
+        det._restored = True
         return det

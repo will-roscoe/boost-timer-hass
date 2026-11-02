@@ -10,23 +10,54 @@ when the ``sync_corrections`` option is off, and at most :data:`~.const.CORRECTI
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, HomeAssistant, callback
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_SYNC_CORRECTIONS, CORRECTION_CAP, DEFAULTS, DOMAIN, EVENT_CORRECTED
+from .const import (
+    BLIND_AFTER,
+    BLIND_NOTIFY_AFTER,
+    CONF_RADIATOR_SENSOR,
+    CONF_ROOM_SENSORS,
+    CONF_SYNC_CORRECTIONS,
+    CORRECTION_CAP,
+    DEFAULTS,
+    DOMAIN,
+    EVENT_CORRECTED,
+    NEVER_STARTED_AFTER,
+)
 from .model import HeatingObs
-from .verifier import RadiatorDetector, SwitchEvent
+from .verifier import RadiatorDetector, Reading, SwitchEvent
 
 if TYPE_CHECKING:
     from .controller import BoostTimerController
 
 _LOGGER = logging.getLogger(__name__)
+
+STORAGE_VERSION = 1
+#: How often blindness is checked when no readings arrive.
+CHECK_INTERVAL = timedelta(minutes=10)
+
+
+def _number(hass: HomeAssistant, entity_id: str) -> float | None:
+    """Return the entity's state as a number, or None if missing, unavailable or not a number."""
+    state = hass.states.get(entity_id)
+    if state is None:
+        return None
+    try:
+        return float(state.state)
+    except ValueError:
+        return None
 
 
 def _iso(t: datetime | None) -> str | None:
@@ -41,6 +72,7 @@ class RadiatorSync:
     """Keep one timer's model in sync with its radiator.
 
     :ivar detector: the pure detector fed with readings.
+    :ivar room: the latest mean of the room sensors that read a number, or None.
     :ivar last_correction: details of the last correction (``kind``, ``at``, ``lo``, ``hi``,
         ``detected_at``, ``old_expires_at``, ``new_expires_at``), or None.
     """
@@ -61,6 +93,129 @@ class RadiatorSync:
         self._corrections_date: date | None = None
         self._frozen_date: date | None = None
         self._listeners: list[Callable[[], None]] = []
+        self._radiator: str = entry.options.get(CONF_RADIATOR_SENSOR, "")
+        self._rooms: list[str] = list(entry.options.get(CONF_ROOM_SENSORS, []))
+        self._store: Store[dict[str, Any]] = Store(
+            hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.detector"
+        )
+        self._unsubs: list[CALLBACK_TYPE] = []
+        self.room: float | None = None
+        self._started_at = dt_util.utcnow()
+        self._blind_notified = False
+        self._never_started_for: datetime | None = None
+        self._heating_seen_at: datetime | None = None  # last reading the detector called heating
+
+    # ---- sensors ----------------------------------------------------------------------------
+
+    async def async_start(self) -> None:
+        """Restore the learned detector, follow the sensors, and take a first reading."""
+        data = await self._store.async_load()
+        if data:
+            self.detector = RadiatorDetector.from_dict(data)
+        self._started_at = dt_util.utcnow()
+        self._unsubs.append(
+            async_track_state_change_event(
+                self.hass, [self._radiator, *self._rooms], self._on_state_change
+            )
+        )
+        self._unsubs.append(async_track_time_interval(self.hass, self._on_interval, CHECK_INTERVAL))
+        state = self.hass.states.get(self._radiator)
+        await self.reading(state.last_updated if state else dt_util.utcnow())
+
+    async def async_stop(self) -> None:
+        """Stop following the sensors and save what the detector has learned."""
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs.clear()
+        await self._store.async_save(self.detector.to_dict())
+
+    @callback
+    def _on_state_change(self, event: Event[EventStateChangedData]) -> None:
+        new = event.data["new_state"]
+        if event.data["entity_id"] == self._radiator and new is not None:
+            self.hass.async_create_task(self.reading(new.last_updated), f"{DOMAIN} reading")
+        else:
+            self.room = self._room_value()
+            self._notify()
+
+    def _room_value(self) -> float | None:
+        values = [v for e in self._rooms if (v := _number(self.hass, e)) is not None]
+        return sum(values) / len(values) if values else None
+
+    async def reading(self, at: datetime) -> None:
+        """Read the sensors' current states as a reading taken at ``at`` and act on it.
+
+        A radiator or room value that is missing, unavailable or not a number is no reading.
+        """
+        self.room = self._room_value()
+        radiator = _number(self.hass, self._radiator)
+        if radiator is None or self.room is None:
+            self._notify()
+            return
+        if self._blind_notified:
+            self._blind_notified = False
+            persistent_notification.async_dismiss(self.hass, self._blind_notification_id)
+        event = self.detector.update(Reading(at, radiator, self.room))
+        if self.detector.state is True:
+            self._heating_seen_at = at
+        now = dt_util.utcnow()
+        if event is not None:
+            await self.apply(event, now)
+        await self._check_never_started(now)
+        self._store.async_delay_save(self.detector.to_dict, 30)
+        self._notify()
+
+    def blind(self, now: datetime) -> bool:
+        """Return True when the detector can't be trusted: no radiator reading within
+        :data:`~.const.BLIND_AFTER`, or no room value."""
+        last = self.detector.last_reading_at
+        return self.room is None or last is None or now - last > BLIND_AFTER
+
+    @property
+    def state(self) -> bool | None:
+        """The detector's view: True heating, False not, None undecided or blind."""
+        if self.blind(dt_util.utcnow()):
+            return None
+        return self.detector.state
+
+    @property
+    def _blind_notification_id(self) -> str:
+        return f"{DOMAIN}_{self.entry.entry_id}_sync_blind"
+
+    @callback
+    def _on_interval(self, now: datetime) -> None:
+        if self.blind(now) and not self._blind_notified:
+            since = self.detector.last_reading_at or self._started_at
+            if now - since >= BLIND_NOTIFY_AFTER:
+                self._blind_notified = True
+                persistent_notification.async_create(
+                    self.hass,
+                    f"{self.entry.title}: no usable reading from {self._radiator} or the room "
+                    "sensors for over a day, so radiator sync is not checking the timer.",
+                    title="Boost Timer",
+                    notification_id=self._blind_notification_id,
+                )
+        self._notify()
+
+    async def _check_never_started(self, now: datetime) -> None:
+        """Correct a run whose radiator showed no heating by :data:`NEVER_STARTED_AFTER`.
+
+        Not for a run adopted from detected heating, or one the detector saw heating since it began.
+        """
+        model = self.controller.model
+        rs = model.run_started_at
+        if rs is None or rs == self._never_started_for or model.adopted or self.blind(now):
+            return
+        if self._heating_seen_at is not None and self._heating_seen_at >= rs:
+            return
+        if model.setting(now, self.controller.options) == 0:
+            return
+        deadline = rs + NEVER_STARTED_AFTER
+        last = self.detector.last_reading_at
+        if now < deadline or last is None or last < deadline or self.detector.state is True:
+            return
+        self._never_started_for = rs
+        await self.apply(SwitchEvent(False, rs, rs, rs, now, False), now)
 
     @property
     def corrections_today(self) -> int:

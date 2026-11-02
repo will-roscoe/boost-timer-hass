@@ -98,3 +98,14 @@ def test_round_trip_keeps_learning_drops_buffer():
     assert restored.to_dict() == d.to_dict()
     nxt = Reading(readings[-1].at + 10 * M, readings[-1].radiator, 20.0)
     assert restored.update(nxt) is None
+
+
+def test_first_switch_after_restore_is_initial():
+    """A restored detector has no readings from before, so its first event is not a switch."""
+    readings = series(START, 20.0, [(True, 120)])
+    d, _ = run(readings)
+    restored = RadiatorDetector.from_dict(d.to_dict())
+    last = readings[-1]
+    restored.update(Reading(last.at + M, last.radiator, 20.0))
+    event = restored.update(Reading(last.at + 15 * M, last.radiator - 12, 20.0))
+    assert event is not None and event.initial and not event.heating
