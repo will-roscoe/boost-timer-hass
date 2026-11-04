@@ -1,0 +1,139 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Boost timer",
+        "description": "Pick the SwitchBot Bot that presses the timer's button (a switch in press mode, or a button).",
+        "data": {
+          "name": "Name",
+          "bot_entity": "SwitchBot Bot"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This SwitchBot already drives a boost timer."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Boost timer settings",
+        "data": {
+          "on_setting": "Setting \"On\" arms to (steps)",
+          "max_duration": "Stop \"On\" after (0 = never)",
+          "end_tolerance": "End tolerance for heat-for/until",
+          "min_switch_interval": "Minimum time between on/off reversals",
+          "rearm_early": "Re-arm a minute before expiry (no gap, one extra press)",
+          "selection_window": "Button selection window",
+          "burst_margin": "Burst safety margin",
+          "press_gap": "Gap between presses in a burst",
+          "press_retries": "Failures in a row before notifying",
+          "press_service": "How to press a switch Bot",
+          "step": "Minutes per step (LED)",
+          "steps": "Number of steps (LEDs)",
+          "sync_corrections": "Correct the timer from the radiator sensor",
+          "radiator_sensor": "Radiator temperature sensor",
+          "room_sensors": "Room temperature sensors"
+        }
+      }
+    },
+    "error": {
+      "on_setting_above_steps": "\"On\" can't arm above the number of steps.",
+      "press_gap_too_long": "The gap must be shorter than the selection window minus the safety margin.",
+      "room_sensor_required": "Radiator sync needs at least one room temperature sensor to compare with.",
+      "radiator_in_room_sensors": "The radiator sensor can't also be a room sensor."
+    }
+  },
+  "selector": {
+    "press_service": {
+      "options": {
+        "turn_on": "turn_on",
+        "turn_off": "turn_off",
+        "alternate": "Alternate turn_on / turn_off"
+      }
+    }
+  },
+  "entity": {
+    "switch": {
+      "heating": {
+        "name": "Heating"
+      }
+    },
+    "select": {
+      "setting": {
+        "name": "Setting"
+      }
+    },
+    "sensor": {
+      "expires_at": {
+        "name": "Expires at"
+      },
+      "heating_until": {
+        "name": "Heating until"
+      },
+      "sync_corrections": {
+        "name": "Sync corrections"
+      }
+    },
+    "binary_sensor": {
+      "heating": {
+        "name": "Heating"
+      },
+      "verified_heating": {
+        "name": "Verified heating"
+      },
+      "uncertain": {
+        "name": "Uncertain"
+      }
+    }
+  },
+  "services": {
+    "heat_for": {
+      "name": "Heat for",
+      "description": "Heat for a duration, or until a time, then stop (within the end tolerance).",
+      "fields": {
+        "config_entry_id": {
+          "name": "Timer",
+          "description": "The timer to use; optional when there is only one."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "How long to heat for."
+        },
+        "until": {
+          "name": "Until",
+          "description": "When to stop heating."
+        }
+      }
+    },
+    "sync": {
+      "name": "Sync",
+      "description": "Tell the integration what the timer's LEDs show, without pressing.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Timer",
+          "description": "The timer to correct; optional when there is only one."
+        },
+        "setting": {
+          "name": "Setting",
+          "description": "Hours (LEDs) lit now; 0 = off."
+        },
+        "remaining": {
+          "name": "Remaining",
+          "description": "Time left, if known; otherwise a full run is assumed."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "entry_required": {
+      "message": "More than one Boost Timer is set up: choose one with config_entry_id."
+    },
+    "entry_not_found": {
+      "message": "No loaded Boost Timer has config entry {entry_id}."
+    },
+    "setting_out_of_range": {
+      "message": "Setting must be between 0 and {steps}."
+    }
+  }
+}

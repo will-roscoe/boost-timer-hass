@@ -1,0 +1,19 @@
+# ghtools settings: https://github.com/will-roscoe/.ghtools#configuration
+
+branch = "main"                              # the remote's default branch
+profile = "python"                           # runs the test matrix; "hacs" would also need hacs.json, "lint" skips tests
+
+[release]
+enabled = false                              # private, installed by copying to /config/custom_components
+
+[ci]
+python = ["3.14"]                            # pytest-homeassistant-custom-component's pinned HA needs it
+install = "-r requirements_test.txt ruff"    # not an installable package, so no "-e .[dev]"
+gates = ["ruff", "ruff-format"]
+paths = ["**.py", "**.json", "**.yaml", "pyproject.toml", "requirements_test.txt"] # manifest, strings and services.yaml count
+
+[ci.coverage]
+codecov = false                              # no Codecov for this private repo
+
+[status]
+enabled = false                              # no status card for this private repo
