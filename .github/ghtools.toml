@@ -1,19 +1,31 @@
 # ghtools settings: https://github.com/will-roscoe/.ghtools#configuration
 
 branch = "main"                              # the remote's default branch
-profile = "python"                           # runs the test matrix; "hacs" would also need hacs.json, "lint" skips tests
+profile = "hacs"                             # custom_components/*/manifest.json + hacs.json
+
+[version]
+source = "manifest"                          # custom_components/boost_timer/manifest.json (HACS integration)
+bump = "write"                               # ghtools computes the version from commits and writes it
+manifest = "custom_components/boost_timer/manifest.json" # HACS manifest
 
 [release]
-enabled = false                              # private, installed by copying to /config/custom_components
+publish = ["github-zip"]                     # boost_timer.zip, as hacs.json's zip_release expects
+zip = "custom_components/boost_timer"        # the integration directory
+changelog = ""                               # no CHANGELOG.md
 
 [ci]
 python = ["3.14"]                            # pytest-homeassistant-custom-component's pinned HA needs it
 install = "-r requirements_test.txt ruff"    # not an installable package, so no "-e .[dev]"
 gates = ["ruff", "ruff-format"]
-paths = ["**.py", "**.json", "**.yaml", "pyproject.toml", "requirements_test.txt"] # manifest, strings and services.yaml count
+paths = ["**.py", "**.json", "**.yaml", "**.png", "pyproject.toml", "requirements_test.txt"] # manifest, strings, services.yaml and brand icons count
 
 [ci.coverage]
-codecov = false                              # no Codecov for this private repo
+codecov = false                              # the hacs profile's test job doesn't upload coverage
 
 [status]
-enabled = false                              # no status card for this private repo
+enabled = true                               # ghtools publishes the status card to its own branch
+logo = ".github/logo.svg"                    # the card shows the project logo
+
+[[readme.block]]
+name = "status"
+kind = "status"                              # the status card under the title
