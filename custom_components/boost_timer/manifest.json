@@ -9,6 +9,7 @@
   "documentation": "https://github.com/will-roscoe/boost-timer-hass",
   "integration_type": "device",
   "iot_class": "calculated",
+  "issue_tracker": "https://github.com/will-roscoe/boost-timer-hass/issues",
   "requirements": [],
   "version": "0.1.0"
 }
