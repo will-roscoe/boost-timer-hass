@@ -1,4 +1,5 @@
-"""Binary sensors: whether the radiator is powered, and whether the model may be wrong."""
+"""Binary sensors: whether the radiator is powered (by the model, and by the radiator sensor when
+radiator sync is on), and whether the model may be wrong."""
 
 from __future__ import annotations
 
@@ -19,7 +20,13 @@ async def async_setup_entry(
 ) -> None:
     """Add the heating and uncertain sensors."""
     c = entry.runtime_data
-    async_add_entities([HeatingBinarySensor(c, "heating"), UncertainBinarySensor(c, "uncertain")])
+    entities: list[BinarySensorEntity] = [
+        HeatingBinarySensor(c, "heating"),
+        UncertainBinarySensor(c, "uncertain"),
+    ]
+    if c.sync is not None:
+        entities.append(VerifiedHeatingBinarySensor(c, "verified_heating"))
+    async_add_entities(entities)
 
 
 class HeatingBinarySensor(BoostTimerEntity, BinarySensorEntity):
@@ -41,3 +48,18 @@ class UncertainBinarySensor(BoostTimerEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         return self.controller.model.uncertain
+
+
+class VerifiedHeatingBinarySensor(BoostTimerEntity, BinarySensorEntity):
+    """Whether the radiator sensor shows heating; unknown while blind or undecided."""
+
+    _attr_device_class = BinarySensorDeviceClass.HEAT
+
+    async def async_added_to_hass(self) -> None:
+        """Also rewrite the state whenever radiator sync changes anything."""
+        await super().async_added_to_hass()
+        self.async_on_remove(self.controller.sync.add_listener(self.async_write_ha_state))
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.controller.sync.state

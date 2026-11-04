@@ -1,5 +1,6 @@
 """Constants: the domain, config-entry keys and their defaults (with units)."""
 
+from datetime import timedelta
 from typing import Any
 
 DOMAIN = "boost_timer"
@@ -30,7 +31,27 @@ CONF_STEPS = "steps"
 #: Service used to press a ``switch`` Bot: "turn_on", "turn_off" or "alternate".
 CONF_PRESS_SERVICE = "press_service"
 
+#: Temperature sensor stuck on the radiator; set to turn on radiator sync.
+CONF_RADIATOR_SENSOR = "radiator_sensor"
+#: Room temperature sensors the radiator is compared with (averaged).
+CONF_ROOM_SENSORS = "room_sensors"
+#: Whether radiator sync may correct the timer model (the detector runs either way).
+CONF_SYNC_CORRECTIONS = "sync_corrections"
+
 PRESS_SERVICES = ["turn_on", "turn_off", "alternate"]
+
+#: Radiator sync ignores switches detected within this long after a press landed.
+SUPPRESS_AFTER_PRESS = timedelta(minutes=3)
+#: A run with no heating seen this long after its press is taken to have never started.
+NEVER_STARTED_AFTER = timedelta(minutes=45)
+#: Corrections per local day before radiator sync freezes until midnight.
+CORRECTION_CAP = 6
+#: No radiator reading for this long makes the detector blind.
+BLIND_AFTER = timedelta(hours=1)
+#: Continuous blindness this long raises a persistent notification.
+BLIND_NOTIFY_AFTER = timedelta(hours=24)
+#: Bus event fired for every correction radiator sync makes.
+EVENT_CORRECTED = f"{DOMAIN}_corrected"
 
 DEFAULTS: dict[str, Any] = {
     CONF_SELECTION_WINDOW: 5,
@@ -45,4 +66,5 @@ DEFAULTS: dict[str, Any] = {
     CONF_STEP: 60,
     CONF_STEPS: 4,
     CONF_PRESS_SERVICE: "turn_on",
+    CONF_SYNC_CORRECTIONS: True,
 }

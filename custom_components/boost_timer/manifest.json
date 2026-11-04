@@ -7,7 +7,7 @@
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/will-roscoe/boost-timer-hass",
-  "integration_type": "helper",
+  "integration_type": "device",
   "iot_class": "calculated",
   "requirements": [],
   "version": "0.1.0"

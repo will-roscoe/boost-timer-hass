@@ -36,6 +36,8 @@ from .const import (
 IDLE_MARGIN = timedelta(seconds=1)
 #: How early ``rearm_early`` re-arms before expiry.
 REARM_LEAD = timedelta(seconds=60)
+#: An adopted hand-press run may be extended this close to its assumed end.
+EXTEND_LEAD = timedelta(minutes=15)
 #: Wait before retrying after a failed press.
 RETRY_BACKOFF = timedelta(minutes=5)
 #: Wait before retrying after the Bot could not be connected to, so nothing was pressed.
@@ -100,9 +102,18 @@ class SettingObs:
 
 @dataclass(frozen=True)
 class HeatingObs:
-    """The radiator is known to be heating (True) or not (False); the setting is unknown."""
+    """The radiator is known to be heating (True) or not (False); the setting is unknown.
+
+    :ivar at: when heating started or stopped, if known (back-dated, e.g. by a radiator sensor).
+        ``None`` means "as of now" and keeps the original semantics.
+    :ivar lo: earliest time the switch can have happened (default ``at``).
+    :ivar hi: latest time the switch can have happened (default ``at``).
+    """
 
     heating: bool
+    at: datetime | None = None
+    lo: datetime | None = None
+    hi: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -129,12 +140,18 @@ class TimerModel:
     :ivar last_press_at: when the last press landed; decides whether the next press is quick.
     :ivar uncertain: the model may not match the timer (a failed press, an unknown observation).
     :ivar last_correction: ``(source, at)`` of the last observation that changed the model.
+    :ivar run_started_at: when the press that started the current run landed (the last press of a
+        burst that left the timer on), or a hand press adopted from an observation.
+    :ivar adopted: the run is a hand press seen by an observation, setting unknown: it is assumed
+        1 step and extended a step at a time while nothing says it stopped.
     """
 
     expires_at: datetime | None = None
     last_press_at: datetime | None = None
     uncertain: bool = False
     last_correction: tuple[str, datetime] | None = None
+    run_started_at: datetime | None = None
+    adopted: bool = False
 
     def setting(self, now: datetime, opts: Options) -> int:
         """Return the steps the LEDs show at ``now``: ``ceil(remaining / step)``, 0 when off."""
@@ -161,14 +178,28 @@ class TimerModel:
             new = (current + 1) % (opts.steps + 1)
         self.expires_at = now + new * opts.step if new else None
         self.last_press_at = now
+        self.adopted = False
+        if new:
+            self.run_started_at = now
 
     def observe(self, obs: Observation, now: datetime, opts: Options, source: str) -> bool:
         """Correct the model from an observation.
 
         A :class:`SettingObs` replaces the expiry (a full run when ``remaining`` is unknown) and
-        clears ``uncertain``. A :class:`HeatingObs` that contradicts the model switches it off, or
-        on at 1 step and uncertain (the setting is unknown). An :class:`UnknownObs` marks it
-        uncertain.
+        clears ``uncertain``. A :class:`HeatingObs` without ``at`` that contradicts the model
+        switches it off, or on at 1 step and uncertain (the setting is unknown). An
+        :class:`UnknownObs` marks it uncertain.
+
+        A :class:`HeatingObs` with ``at`` is back-dated:
+
+        - Stopped: the run lasted whole steps, ``h = round((at − run_started_at) / step)``. If
+          ``h`` is at least the run believed, or the window reaches the believed end, this is
+          agreement and nothing changes. Otherwise the
+          run becomes ``h`` steps (``h = 0``: the presses never took). If ``lo`` and ``hi`` round
+          to different ``h``, the model goes off and uncertain instead. Ignored before the run
+          started.
+        - Started while the model was off at ``at``: adopt it as a hand press, 1 step from ``at``,
+          uncertain, extended by :meth:`extend_adopted` while it is seen heating.
 
         :param source: who observed it (``"sync"``, ``"verifier"``, ``"executor"``), recorded in
             :attr:`last_correction` when the model changes.
@@ -182,6 +213,8 @@ class TimerModel:
                 else:
                     self.expires_at = now + (r if r is not None else n * opts.step)
                 self.uncertain = False
+            case HeatingObs(at=at) if at is not None:
+                self._observe_back_dated(obs, opts)
             case HeatingObs(heating=heating):
                 on = self.setting(now, opts) > 0
                 if heating and not on:
@@ -193,8 +226,37 @@ class TimerModel:
                 self.uncertain = True
         changed = (self.expires_at, self.uncertain) != before
         if changed:
-            self.last_correction = (source, now)
+            at = obs.at if isinstance(obs, HeatingObs) and obs.at is not None else now
+            self.last_correction = (source, at)
         return changed
+
+    def _observe_back_dated(self, obs: HeatingObs, opts: Options) -> None:
+        assert obs.at is not None
+        at = obs.at
+        if obs.heating:
+            if self.setting(at, opts) == 0:
+                self.run_started_at = self.last_press_at = at
+                self.expires_at = at + opts.step
+                self.uncertain = True
+                self.adopted = True
+            return
+        rs, expires = self.run_started_at, self.expires_at
+        if rs is None or expires is None or at < rs:
+            return
+        if (obs.hi or at) >= expires:
+            return  # it may have run to the end HA expected: agreement
+        believed = round((expires - rs) / opts.step)
+        h_lo = round(((obs.lo or at) - rs) / opts.step)
+        h_hi = round(((obs.hi or at) - rs) / opts.step)
+        if min(h_lo, h_hi) >= believed:
+            return
+        self.adopted = False
+        if h_lo == h_hi:
+            self.expires_at = rs + h_lo * opts.step if h_lo > 0 else None
+            self.uncertain = False
+        else:
+            self.expires_at = None
+            self.uncertain = True
 
     def _uncertain_until(self, opts: Options) -> datetime | None:
         corrected_at = self.last_correction[1] if self.last_correction else None
@@ -207,6 +269,23 @@ class TimerModel:
         until = self._uncertain_until(opts)
         if self.uncertain and until is not None and now >= until:
             self.uncertain = False
+
+    def extend_adopted(self, now: datetime, opts: Options) -> bool:
+        """Extend an adopted hand-press run by one step, because it is known to be still heating.
+
+        Only within :data:`EXTEND_LEAD` of its assumed end (or after it), and never past ``steps``
+        from when it started. Callers must have evidence of heating: without it the run ends when
+        assumed.
+
+        :returns: True if the run was extended.
+        """
+        e, rs = self.expires_at, self.run_started_at
+        if not self.adopted or e is None or rs is None:
+            return False
+        if e - now > EXTEND_LEAD or e - rs >= opts.steps * opts.step:
+            return False
+        self.expires_at = e + opts.step
+        return True
 
     def next_change(self, now: datetime, opts: Options) -> datetime | None:
         """Return the next time the displayed setting changes or uncertainty clears, if any."""
@@ -233,15 +312,25 @@ class TimerModel:
                 if self.last_correction
                 else None
             ),
+            "run_started_at": _iso(self.run_started_at),
+            "adopted": self.adopted,
         }
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> TimerModel:
         """Rebuild a model saved by :meth:`to_dict`."""
         corr = d.get("last_correction")
+        expires = _dt(d.get("expires_at"))
+        last_press = _dt(d.get("last_press_at"))
+        # Saved by v1: an on model's last press always started its run.
+        run_started = _dt(d["run_started_at"]) if "run_started_at" in d else None
+        if "run_started_at" not in d and expires is not None:
+            run_started = last_press
         return cls(
-            expires_at=_dt(d.get("expires_at")),
-            last_press_at=_dt(d.get("last_press_at")),
+            expires_at=expires,
+            last_press_at=last_press,
             uncertain=bool(d.get("uncertain", False)),
             last_correction=(corr[0], _dt(corr[1])) if corr else None,
+            run_started_at=run_started,
+            adopted=bool(d.get("adopted", False)),
         )

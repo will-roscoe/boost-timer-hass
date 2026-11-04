@@ -4,7 +4,10 @@ from homeassistant.helpers import entity_registry as er
 
 from custom_components.boost_timer.model import UnknownObs
 from custom_components.boost_timer.planner import Request
+from custom_components.boost_timer.verifier import SwitchEvent
 
+from .conftest import feed
+from .radiator_curves import series
 from .test_controller import advance, now, setup
 
 M = timedelta(minutes=1)
@@ -112,3 +115,41 @@ async def test_uncertain_binary_sensor_reflects_model(hass, bot, entry):
     await c.observe(UnknownObs(), "test")
     await hass.async_block_till_done()
     assert state(hass, "binary_sensor.radiator_uncertain") == "on"
+
+
+SYNC_IDS = ["binary_sensor.radiator_verified_heating", "sensor.radiator_sync_corrections"]
+
+
+async def test_sync_entities_created_only_with_sensor(hass, bot, entry):
+    await setup(hass, entry)
+    for entity_id in SYNC_IDS:
+        assert hass.states.get(entity_id) is None
+
+
+async def test_sync_entities_created_with_sensor(hass, bot, sync_entry):
+    await setup(hass, sync_entry)
+    for entity_id in SYNC_IDS:
+        assert hass.states.get(entity_id) is not None, entity_id
+    reg = er.async_get(hass)
+    assert reg.async_get("sensor.radiator_sync_corrections").entity_category == "diagnostic"
+
+
+async def test_verified_heating_unknown_while_undecided_then_follows_detector(
+    hass, bot, sync_entry, freezer
+):
+    await setup(hass, sync_entry)
+    assert state(hass, "binary_sensor.radiator_verified_heating") == "unknown"
+    await feed(hass, freezer, series(now(), 20.0, [(True, 60)]))
+    assert state(hass, "binary_sensor.radiator_verified_heating") == "on"
+
+
+async def test_corrections_sensor_counts_and_shows_last(hass, bot, sync_entry):
+    c = await setup(hass, sync_entry)
+    at = now() - 20 * M
+    assert await c.sync.apply(SwitchEvent(True, at, at, at, now(), False), now()) == "adopted"
+    await hass.async_block_till_done()
+    s = hass.states.get("sensor.radiator_sync_corrections")
+    assert s.state == "1"
+    assert s.attributes["last_correction"]["kind"] == "adopted"
+    assert s.attributes["frozen"] is False
+    assert s.attributes["corrections_total"] == 1

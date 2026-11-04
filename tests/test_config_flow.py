@@ -1,6 +1,7 @@
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+import voluptuous as vol
 
 from custom_components.boost_timer.const import (
     CONF_BOT,
@@ -13,16 +14,24 @@ from custom_components.boost_timer.const import (
     CONF_PRESS_GAP,
     CONF_PRESS_RETRIES,
     CONF_PRESS_SERVICE,
+    CONF_RADIATOR_SENSOR,
     CONF_REARM_EARLY,
+    CONF_ROOM_SENSORS,
     CONF_SELECTION_WINDOW,
     CONF_STEP,
     CONF_STEPS,
+    CONF_SYNC_CORRECTIONS,
     DEFAULTS,
     DOMAIN,
 )
 
-from .conftest import BOT
+from .conftest import BOT, RAD, ROOM
 from .test_controller import setup
+
+
+def form_defaults(schema):
+    """The form's default values, skipping fields with none (the optional sensors)."""
+    return {str(k): k.default() for k in schema if k.default is not vol.UNDEFINED}
 
 
 async def test_user_flow_creates_entry(hass, bot):
@@ -58,7 +67,7 @@ async def test_options_flow_shows_defaults(hass, bot, entry):
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] is FlowResultType.FORM
     schema = result["data_schema"].schema
-    defaults = {str(k): k.default() for k in schema}
+    defaults = form_defaults(schema)
     for key in (
         CONF_SELECTION_WINDOW,
         CONF_BURST_MARGIN,
@@ -107,8 +116,48 @@ async def test_options_flow_rejects_on_setting_above_steps(hass, bot, entry):
 async def test_options_flow_rejects_press_gap_outside_the_window(hass, bot, entry):
     await setup(hass, entry)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    defaults = {str(k): k.default() for k in result["data_schema"].schema}
+    defaults = form_defaults(result["data_schema"].schema)
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {**defaults, CONF_PRESS_GAP: 4}
     )
     assert result["errors"] == {CONF_PRESS_GAP: "press_gap_too_long"}
+
+
+async def submit_options(hass, entry, **changes):
+    await setup(hass, entry)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    return await hass.config_entries.options.async_configure(
+        result["flow_id"], {**form_defaults(result["data_schema"].schema), **changes}
+    )
+
+
+def temperature_sensors(hass):
+    for entity_id in (RAD, ROOM):
+        hass.states.async_set(entity_id, "20.0", {"device_class": "temperature"})
+
+
+async def test_options_flow_accepts_sensors(hass, bot, entry):
+    temperature_sensors(hass)
+    result = await submit_options(
+        hass, entry, **{CONF_RADIATOR_SENSOR: RAD, CONF_ROOM_SENSORS: [ROOM]}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.options[CONF_RADIATOR_SENSOR] == RAD
+    assert entry.options[CONF_ROOM_SENSORS] == [ROOM]
+    assert entry.runtime_data.sync is not None
+    assert entry.options[CONF_SYNC_CORRECTIONS] is True
+
+
+async def test_options_flow_requires_room_sensor(hass, bot, entry):
+    temperature_sensors(hass)
+    result = await submit_options(hass, entry, **{CONF_RADIATOR_SENSOR: RAD})
+    assert result["errors"] == {CONF_ROOM_SENSORS: "room_sensor_required"}
+
+
+async def test_options_flow_rejects_radiator_as_room(hass, bot, entry):
+    temperature_sensors(hass)
+    result = await submit_options(
+        hass, entry, **{CONF_RADIATOR_SENSOR: RAD, CONF_ROOM_SENSORS: [ROOM, RAD]}
+    )
+    assert result["errors"] == {CONF_ROOM_SENSORS: "radiator_in_room_sensors"}

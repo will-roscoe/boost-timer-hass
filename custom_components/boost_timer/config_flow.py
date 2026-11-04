@@ -35,10 +35,13 @@ from .const import (
     CONF_PRESS_GAP,
     CONF_PRESS_RETRIES,
     CONF_PRESS_SERVICE,
+    CONF_RADIATOR_SENSOR,
     CONF_REARM_EARLY,
+    CONF_ROOM_SENSORS,
     CONF_SELECTION_WINDOW,
     CONF_STEP,
     CONF_STEPS,
+    CONF_SYNC_CORRECTIONS,
     DEFAULTS,
     DOMAIN,
     PRESS_SERVICES,
@@ -70,6 +73,17 @@ OPTION_FIELDS = {
     ),
     CONF_STEP: _number(1, 240, unit="min"),
     CONF_STEPS: _number(1, 12),
+    CONF_SYNC_CORRECTIONS: BooleanSelector(),
+}
+
+#: Optional sensor fields for radiator sync; they have no default and may be left empty.
+SENSOR_FIELDS = {
+    CONF_RADIATOR_SENSOR: EntitySelector(
+        EntitySelectorConfig(domain="sensor", device_class="temperature")
+    ),
+    CONF_ROOM_SENSORS: EntitySelector(
+        EntitySelectorConfig(domain="sensor", device_class="temperature", multiple=True)
+    ),
 }
 
 
@@ -111,13 +125,19 @@ class BoostTimerOptionsFlow(OptionsFlowWithReload):
                 user_input[CONF_SELECTION_WINDOW] - user_input[CONF_BURST_MARGIN]
             ):
                 errors[CONF_PRESS_GAP] = "press_gap_too_long"
+            elif user_input.get(CONF_RADIATOR_SENSOR) and not user_input.get(CONF_ROOM_SENSORS):
+                errors[CONF_ROOM_SENSORS] = "room_sensor_required"
+            elif user_input.get(CONF_RADIATOR_SENSOR) in user_input.get(CONF_ROOM_SENSORS, []):
+                errors[CONF_ROOM_SENSORS] = "radiator_in_room_sensors"
             else:
                 return self.async_create_entry(data=user_input)
         current = {**DEFAULTS, **self.config_entry.options, **(user_input or {})}
-        schema = vol.Schema(
-            {
-                vol.Optional(key, default=current[key]): selector
-                for key, selector in OPTION_FIELDS.items()
-            }
-        )
-        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+        fields: dict[Any, Any] = {
+            vol.Optional(key, default=current[key]): selector
+            for key, selector in OPTION_FIELDS.items()
+        }
+        fields |= {
+            vol.Optional(key, description={"suggested_value": current.get(key)}): selector
+            for key, selector in SENSOR_FIELDS.items()
+        }
+        return self.async_show_form(step_id="init", data_schema=vol.Schema(fields), errors=errors)

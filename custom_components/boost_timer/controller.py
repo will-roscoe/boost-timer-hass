@@ -32,7 +32,7 @@ from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_BOT, CONF_PRESS_SERVICE, DEFAULTS, DOMAIN
+from .const import CONF_BOT, CONF_PRESS_SERVICE, DEFAULTS, DOMAIN, SUPPRESS_AFTER_PRESS
 from .model import UNREACHABLE_BACKOFF, Observation, Options, TimerModel, UnknownObs
 from .planner import Burst, Done, Kind, Request, Wait, next_action
 from .press import BotUnavailable, BotUnreachable, PressAdapter, PressFailed
@@ -66,11 +66,14 @@ class BoostTimerController:
         )
         self._lock = asyncio.Lock()
         self._press_task: asyncio.Task[None] | None = None
+        self._pressing = False
         self._next_backoff = self.options.retry_backoff
         self._listeners: list[Callable[[], None]] = []
         self._unsub_wake: CALLBACK_TYPE | None = None
         self._unsub_started: CALLBACK_TYPE | None = None
         self._stopped = False
+        #: Radiator sync, when a radiator sensor is configured (set up by the integration).
+        self.sync: Any = None
 
         self.model = TimerModel()
         self.request: Request | None = None
@@ -156,12 +159,34 @@ class BoostTimerController:
         self._kick()
         return True
 
-    async def observe(self, obs: Observation, source: str) -> None:
-        """Correct the model from an observation (e.g. a sync), then re-plan."""
-        self.model.observe(obs, dt_util.utcnow(), self.options, source)
+    async def observe(self, obs: Observation, source: str) -> bool:
+        """Correct the model from an observation (e.g. a sync), then re-plan.
+
+        :returns: True if the model changed.
+        """
+        changed = self.model.observe(obs, dt_util.utcnow(), self.options, source)
         await self._save()
         self._notify()
         self._kick()
+        return changed
+
+    async def extend_adopted(self, now: datetime) -> bool:
+        """Extend an adopted hand-press run that is known to be still heating, then re-plan.
+
+        :returns: True if the run was extended (see :meth:`.model.TimerModel.extend_adopted`).
+        """
+        if not self.model.extend_adopted(now, self.options):
+            return False
+        await self._save()
+        self._notify()
+        self._kick()
+        return True
+
+    def busy(self, now: datetime) -> bool:
+        """Return True while a burst is being pressed or within ``SUPPRESS_AFTER_PRESS`` of a
+        press (a planning pass that presses nothing doesn't count)."""
+        last = self.model.last_press_at
+        return self._pressing or (last is not None and now - last < SUPPRESS_AFTER_PRESS)
 
     def add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:
         """Call ``cb`` after every change; returns a function that removes it."""
@@ -290,6 +315,13 @@ class BoostTimerController:
         after the first that took so long the selection window may have closed, or being stopped
         mid-press marks the model uncertain.
         """
+        self._pressing = True
+        try:
+            return await self._press_burst(burst)
+        finally:
+            self._pressing = False
+
+    async def _press_burst(self, burst: Burst) -> bool:
         window = self.options.selection_window - self.options.burst_margin
         last_landed = None
         for i in range(self.options.steps + 1):
