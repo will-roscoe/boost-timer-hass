@@ -1,0 +1,36 @@
+{
+  "builds": {
+    "Linux": {
+      "x86_64": "passing"
+    }
+  },
+  "coverage": null,
+  "docstrings": null,
+  "lint": {
+    "gates": [
+      "ruff",
+      "ruff-format"
+    ],
+    "status": "passing"
+  },
+  "python": [
+    {
+      "status": "passing",
+      "version": "3.14"
+    }
+  ],
+  "run": {
+    "commit": "e8786a75f18cfd58d98a7b4cefea737f5436fa79",
+    "id": "41756916494",
+    "url": "https://github.com/will-roscoe/boost-timer-hass/actions/runs/41756916494"
+  },
+  "source": "ci",
+  "tests": {
+    "duration_s": 7.91,
+    "failed": 0,
+    "passed": 174,
+    "skipped": 0,
+    "total": 174
+  },
+  "updated": "2026-11-04T01:53:40Z"
+}

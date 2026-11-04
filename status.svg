@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 429" width="900" height="429">
+<style>
+svg { font-family: var(--fontStack-sansSerif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif); }
+.background { fill: var(--bgColor-default, #0d1117); }
+.text { fill: var(--fgColor-default, var(--color-fg-default, #f6f8fa)); }
+.muted { fill: var(--color-prettylights-syntax-comment, #656d76); }
+.card { fill: var(--bgColor-muted, var(--color-canvas-subtle, #151b23)); }
+.mono { font-family: var(--fontStack-monospace, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); }
+.title { font-size: 2em; font-weight: 600; }
+.subtitle { font-size: 16px; }
+.label { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; }
+.value { font-size: 22px; font-weight: 500; }
+.small { font-size: 13px; }
+.link { fill: var(--fgColor-accent, var(--color-accent-fg, #0969da)); text-decoration: underline; }
+.pass { fill: var(--bgColor-success-emphasis, #1a7f37); }
+.fail { fill: var(--bgColor-danger-emphasis, #cf222e); }
+.warn { fill: var(--bgColor-attention-emphasis, #9a6700); }
+.ok { fill: var(--bgColor-success-emphasis, #1a7f37); }
+</style>
+<rect class="background" x="1" y="1" width="898" height="427" rx="14"/>
+<image x="35" y="20" width="80" height="80" href="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9ImJvb3N0LXRpbWVyLWhhc3MiPgogIDxkZWZzPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJmaWxsIiB4MT0iMC4xNSIgeTE9IjAuOSIgeDI9IjAuODUiIHkyPSIwLjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9InJnYigyNTUsIDE5NiwgOTIpIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMC41IiBzdG9wLWNvbG9yPSJyZ2IoMjU1LCAxMjgsIDQ4KSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9InJnYigyMjYsIDYyLCA1MikiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9InNoZWVuIiB4MT0iMCIgeTE9IjAiIHgyPSIwLjYiIHkyPSIwLjciPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZmYiIHN0b3Atb3BhY2l0eT0iMC4zNSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiNmZmYiIHN0b3Atb3BhY2l0eT0iMCIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHJlY3QgeD0iNCIgeT0iNCIgd2lkdGg9IjkyIiBoZWlnaHQ9IjkyIiByeD0iMjIiIGZpbGw9InVybCgjZmlsbCkiLz4KICA8cmVjdCB4PSI0IiB5PSI0IiB3aWR0aD0iOTIiIGhlaWdodD0iOTIiIHJ4PSIyMiIgZmlsbD0idXJsKCNzaGVlbikiLz4KICA8IS0tIHJhZGlhdG9yOiBmb3VyIGZpbnMgb24gdHdvIHJhaWxzIC0tPgogIDxnIGZpbGw9IiNmZmYiPgogICAgPHJlY3QgeD0iMjAiIHk9IjMwIiB3aWR0aD0iOSIgaGVpZ2h0PSI0NiIgcng9IjQuNSIvPgogICAgPHJlY3QgeD0iMzMiIHk9IjMwIiB3aWR0aD0iOSIgaGVpZ2h0PSI0NiIgcng9IjQuNSIvPgogICAgPHJlY3QgeD0iNDYiIHk9IjMwIiB3aWR0aD0iOSIgaGVpZ2h0PSI0NiIgcng9IjQuNSIvPgogICAgPHJlY3QgeD0iNTkiIHk9IjMwIiB3aWR0aD0iOSIgaGVpZ2h0PSI0NiIgcng9IjQuNSIvPgogICAgPHJlY3QgeD0iMTYiIHk9IjM4IiB3aWR0aD0iNTYiIGhlaWdodD0iNSIgcng9IjIuNSIvPgogICAgPHJlY3QgeD0iMTYiIHk9IjY0IiB3aWR0aD0iNTYiIGhlaWdodD0iNSIgcng9IjIuNSIvPgogIDwvZz4KICA8IS0tIGJvb3N0IHRpbWVyOiBmb3VyIExFRHMsIHRocmVlIGxpdCAtLT4KICA8Zz4KICAgIDxjaXJjbGUgY3g9IjgwIiBjeT0iMzQiIHI9IjQuMiIgZmlsbD0iI2ZmZiIvPgogICAgPGNpcmNsZSBjeD0iODAiIGN5PSI0NiIgcj0iNC4yIiBmaWxsPSIjZmZmIi8+CiAgICA8Y2lyY2xlIGN4PSI4MCIgY3k9IjU4IiByPSI0LjIiIGZpbGw9IiNmZmYiLz4KICAgIDxjaXJjbGUgY3g9IjgwIiBjeT0iNzAiIHI9IjQuMiIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjM1Ii8+CiAgPC9nPgogIDwhLS0gaGVhdCAtLT4KICA8ZyBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMy4yIiBzdHJva2UtbGluZWNhcD0icm91bmQiPgogICAgPHBhdGggZD0iTTI4IDIyIHEtMyAtNCAwIC04Ii8+CiAgICA8cGF0aCBkPSJNNDQgMjIgcS0zIC00IDAgLTgiLz4KICAgIDxwYXRoIGQ9Ik02MCAyMiBxLTMgLTQgMCAtOCIvPgogIDwvZz4KPC9zdmc+Cg=="/>
+<text class="title text" x="130" y="55">boost-timer-hass</text>
+<text class="subtitle muted" x="130" y="90">
+<tspan x="130">Home Assistant integration that drives a pushbutton radiator</tspan>
+<tspan x="130" dy="18">boost timer through a SwitchBot Bot, kept in sync by a</tspan>
+<tspan x="130" dy="18">radiator temperature sensor</tspan>
+</text>
+<text class="value text" x="865" y="55" text-anchor="end">v0.1.0</text>
+<text class="label muted" x="35" y="171">QUALITY</text>
+<rect class="card" x="35" y="189" width="190" height="90" rx="10"/>
+<text class="label mono pass" x="50" y="214">TESTS</text>
+<text class="value text" x="50" y="246">✓ 174</text>
+<text class="small mono muted" x="50" y="266">0 failed · 0 skipped</text>
+<rect class="card" x="245" y="189" width="190" height="90" rx="10"/>
+<text class="label mono pass" x="260" y="214">LINT</text>
+<text class="value text" x="260" y="246">✓ Clean</text>
+<text class="small mono muted" x="260" y="266">ruff, ruff-format</text>
+<text class="label muted" x="35" y="319">PYTHON SUPPORT</text>
+<text class="small text" x="45" y="349" text-anchor="middle">3.14</text>
+<circle cx="45" cy="374" r="8" class="pass"/>
+<text class="label muted" x="225" y="319">BUILDS</text>
+<text class="small muted" x="225" y="369">x86_64</text>
+<text class="small text" x="315" y="347" text-anchor="middle">Linux</text>
+<circle cx="315" cy="365" r="6" class="pass"/>
+</svg>
