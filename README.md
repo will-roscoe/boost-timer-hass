@@ -1,4 +1,8 @@
-# Boost Timer
+<!-- ghtools:sync status START — generated from the status branch, do not edit here -->
+
+<img src="https://github.com/will-roscoe/boost-timer-hass/raw/ghtools-status/status.svg" alt="will-roscoe/boost-timer-hass status" width="900">
+
+<!-- ghtools:sync status END -->
 
 A Home Assistant integration that drives a dumb pushbutton boost timer (off / 1h / 2h / 3h / 4h,
 one button, four LEDs) through a SwitchBot Bot, and keeps a model of what the timer is doing.
@@ -13,8 +17,15 @@ running timer off. The integration plans presses from that model and exposes:
 - actions `boost_timer.heat_for` (`duration` or `until`) and `boost_timer.sync` (correct the model
   without pressing)
 
-Install by copying `custom_components/boost_timer` into the Home Assistant `config/custom_components`
-directory and adding the integration from the UI.
+## Install
+
+Through HACS, as a custom repository: HACS → ⋮ → Custom repositories, add
+`https://github.com/will-roscoe/boost-timer-hass` with type **Integration**, then download
+**Boost Timer** and restart Home Assistant. Or copy `custom_components/boost_timer` from a release
+into the Home Assistant `config/custom_components` directory and restart.
+
+Then add **Boost Timer** under Settings → Devices & services, and pick the SwitchBot Bot that
+presses the timer's button. Timings, the radiator sensor and the room sensors are in its options.
 
 ## Radiator sensor sync
 

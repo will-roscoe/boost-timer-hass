@@ -20,3 +20,10 @@ def test_listed_as_a_device_integration():
         (Path(__file__).parent.parent / "custom_components/boost_timer/manifest.json").read_text()
     )
     assert manifest["integration_type"] == "device"
+
+
+def test_manifest_has_the_keys_hacs_requires():
+    manifest = json.loads(
+        (Path(__file__).parent.parent / "custom_components/boost_timer/manifest.json").read_text()
+    )
+    assert manifest["issue_tracker"] == "https://github.com/will-roscoe/boost-timer-hass/issues"
