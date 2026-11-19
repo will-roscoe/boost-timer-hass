@@ -17,6 +17,8 @@ running timer off. The integration plans presses from that model and exposes:
 - actions `boost_timer.heat_for` (`duration` or `until`) and `boost_timer.sync` (correct the model
   without pressing)
 
+<img src="https://github.com/will-roscoe/boost-timer-hass/raw/main/docs/images/device.png" alt="The Radiator device page: the radiator climate entity, the Heating switch and the Setting select under Controls; Expires at, Heating, Heating until and Verified heating under Sensors; Sync corrections and Uncertain under Diagnostic; and the activity log." width="800">
+
 ## Install
 
 Through HACS, as a custom repository: HACS → ⋮ → Custom repositories, add
@@ -26,6 +28,9 @@ into the Home Assistant `config/custom_components` directory and restart.
 
 Then add **Boost Timer** under Settings → Devices & services, and pick the SwitchBot Bot that
 presses the timer's button. Timings, the radiator sensor and the room sensors are in its options.
+
+<img src="https://github.com/will-roscoe/boost-timer-hass/raw/main/docs/images/setup.png" alt="The Boost timer setup dialog: a name and the SwitchBot Bot that presses the timer's button." width="380">
+<img src="https://github.com/will-roscoe/boost-timer-hass/raw/main/docs/images/options.png" alt="The Boost timer settings dialog: the steps Setting On arms to, when to stop On, the end tolerance for heat-for and until, the minimum time between reversals, re-arming before expiry, the button selection window, the burst safety margin, the gap between presses, and failures before notifying." width="380">
 
 ## Radiator sensor sync
 
